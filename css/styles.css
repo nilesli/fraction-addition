@@ -24,22 +24,34 @@
 html, body {
   margin: 0;
   padding: 0;
-  height: 100%;
+  min-height: 100%;
   min-height: 100dvh;
   font-family: var(--font);
   background: linear-gradient(135deg, #e0f2fe 0%, #e8f5f2 50%, #f0fdf4 100%);
   color: var(--text);
   font-size: 18px;
-  overflow: hidden;
-}
-
-/* Start screen: allow page scroll so 學號 + button stay reachable on short phones */
-body.start-active {
+  /* Default: page can scroll (phones). Wide landscape practice locks below. */
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-body.start-active #app-root {
+
+#app-root {
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Start / practice: always allow vertical page scroll on short viewports */
+body.start-active,
+body.practice-active {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+body.start-active #app-root,
+body.practice-active #app-root {
   min-height: 100%;
   min-height: 100dvh;
 }
@@ -87,7 +99,7 @@ button, input {
 }
 
 /* ----- Screens ----- */
-.screen { display: none; height: 100%; }
+.screen { display: none; flex: 1; min-height: 0; }
 .screen.active { display: flex; flex-direction: column; }
 
 /* ----- Start / 學號 ----- */
@@ -238,8 +250,9 @@ button, input {
 
 /* ----- Practice layout ----- */
 #screen-practice {
-  height: 100%;
+  flex: 1;
   min-height: 0;
+  /* height filled by parent on wide landscape; auto on narrow (see media queries) */
 }
 
 .topbar {
@@ -324,7 +337,9 @@ button, input {
   flex: 0 0 55%;
   max-width: 55%;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem 1.25rem;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   transition: flex-basis 0.25s, max-width 0.25s;
 }
 .work-panel.expanded {
@@ -669,6 +684,7 @@ button, input {
 .hint-body {
   flex: 1;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem;
 }
 .hint-mascot-row {
@@ -853,6 +869,113 @@ button, input {
   .hint-panel { flex-basis: 48%; max-width: 48%; }
   body { font-size: 16px; }
 }
+
+
+/* ----- Wide landscape desktop/tablet: fill viewport, scroll inside panels ----- */
+@media (min-width: 901px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
+  /* Higher specificity than body.practice-active so practice stays locked */
+  body.practice-active {
+    overflow: hidden;
+    height: 100%;
+  }
+  body.practice-active #app-root {
+    height: 100%;
+    min-height: 0;
+  }
+  #app-root {
+    height: 100%;
+    min-height: 0;
+  }
+  #screen-practice.screen.active {
+    height: 100%;
+    min-height: 0;
+  }
+  /* Start screen still scrolls if content taller than viewport */
+  body.start-active {
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: auto;
+  }
+  body.start-active #app-root {
+    height: auto;
+    min-height: 100%;
+    min-height: 100dvh;
+  }
+}
+
+/* ----- Narrow / phone (portrait or small landscape): page scroll + stack panels ----- */
+@media (max-width: 900px) {
+  html, body {
+    height: auto !important;
+    min-height: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  #app-root {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .screen.active {
+    height: auto;
+    min-height: 100dvh;
+    flex: 1 0 auto;
+  }
+  #screen-start {
+    min-height: 100dvh;
+  }
+  #screen-practice {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .main-row {
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: auto;
+  }
+  .work-panel,
+  .work-panel.expanded {
+    flex: 1 1 auto;
+    flex-basis: auto !important;
+    max-width: 100% !important;
+    overflow: visible;
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px) + 3.5rem); /* room above FAB */
+  }
+  .hint-panel {
+    flex: 0 0 auto;
+    flex-basis: auto !important;
+    max-width: 100% !important;
+    border-left: none;
+    border-top: 2px solid var(--border);
+    min-height: auto;
+  }
+  .hint-panel.hidden {
+    flex-basis: 0 !important;
+    max-width: 0 !important;
+    border-top: none;
+  }
+  .hint-body {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+  /* Soft portrait tip stays sticky above content */
+  body.practice-active #portrait-blocker {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+}
+
 
 
 /* ----- L1 stage badge & overlay ----- */
