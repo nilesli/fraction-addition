@@ -1,2 +1,3 @@
-# fraction-addition
-分數加法練習 — Iu Shan 小學練習網頁
+# 分數加法練習
+
+靜態 GitHub Pages 部署用檔案（唔含預覽圖同單檔版）。
