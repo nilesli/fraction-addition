@@ -327,15 +327,21 @@ button, input {
 
 .main-row {
   flex: 1;
-  display: flex;
+  display: flex !important;
+  flex-direction: row !important; /* practice LEFT, hint RIGHT — never stack */
+  flex-wrap: nowrap !important;
   min-height: 0;
   gap: 0;
+  align-items: stretch;
 }
 
 /* Left work panel */
 .work-panel {
+  order: 1; /* LEFT */
   flex: 0 0 55%;
   max-width: 55%;
+  min-width: 0; /* allow shrink; prevent flex min-content blowout */
+  width: 55%;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   padding: 1rem 1.25rem;
@@ -653,10 +659,14 @@ button, input {
 
 /* Right hint panel */
 .hint-panel {
+  order: 2; /* RIGHT */
   flex: 0 0 45%;
   max-width: 45%;
+  min-width: 0;
+  width: 45%;
   background: rgba(255,255,255,0.85);
   border-left: 2px solid var(--border);
+  border-top: none;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -933,34 +943,45 @@ button, input {
     height: auto;
     min-height: 100dvh;
   }
-  /* Keep 左右顯示 — do NOT stack to column (user wants side-by-side on phone too) */
+  /* Force 左右：練習 LEFT · 提示 RIGHT — never column-stack on phone */
   .main-row {
-    flex-direction: row;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
     flex: 1 1 auto;
     min-height: auto;
     align-items: stretch;
   }
   .work-panel {
-    flex: 0 0 55%;
-    max-width: 55%;
+    order: 1 !important;
+    flex: 0 0 55% !important;
+    max-width: 55% !important;
+    min-width: 0 !important;
+    width: 55% !important;
     overflow: visible; /* page scrolls; do not clip */
     padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px) + 3.5rem); /* room above FAB */
   }
   .work-panel.expanded {
-    flex-basis: 100%;
-    max-width: 100%;
+    flex-basis: 100% !important;
+    max-width: 100% !important;
+    width: 100% !important;
   }
   .hint-panel {
-    flex: 0 0 45%;
-    max-width: 45%;
-    border-left: 2px solid var(--border);
-    border-top: none;
+    order: 2 !important;
+    flex: 0 0 45% !important;
+    max-width: 45% !important;
+    min-width: 0 !important;
+    width: 45% !important;
+    border-left: 2px solid var(--border) !important;
+    border-top: none !important;
     min-height: auto;
     overflow: visible;
   }
   .hint-panel.hidden {
     flex-basis: 0 !important;
     max-width: 0 !important;
+    width: 0 !important;
+    min-width: 0 !important;
   }
   .hint-body {
     overflow: visible;
