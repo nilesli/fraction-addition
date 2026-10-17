@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="color-scheme" content="light" />
+  <title>分數加法練習｜李文偉老師 · Iu Shan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="start-active">
+  <!-- Portrait blocker -->
+  <div id="portrait-blocker" aria-live="polite">
+    <div class="icon">📱</div>
+    <div>橫放會睇得更清楚（直向都可以繼續練習）</div>
+  </div>
+
+  <div id="app-root">
+    <!-- ===== Start: 學號 ===== -->
+    <section id="screen-start" class="screen active" aria-label="輸入學號">
+      <div class="start-card">
+        <div class="start-mascot" data-mascot>
+          <img alt="" style="display:none" />
+          <span class="mascot-fallback" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center">👋</span>
+        </div>
+        <h1>分數加法練習</h1>
+        <p class="teacher">李文偉老師 · Iu Shan</p>
+        <p style="color:var(--muted);margin:0 0 1rem;font-size:1rem">一步一步嚟，錯咗唔緊要，再試過就得！</p>
+        <label for="student-id-input">學號</label>
+        <input id="student-id-input" type="text" maxlength="20" placeholder="輸入你嘅學號" autocomplete="off" />
+        <div id="start-error" class="start-error" role="alert"></div>
+        <button type="button" id="btn-start" class="btn btn-primary" onclick="window.__fracStart&&window.__fracStart()" style="width:100%;margin-top:0.25rem">開始練習</button>
+      </div>
+    </section>
+
+    <!-- ===== Practice ===== -->
+    <section id="screen-practice" class="screen" aria-label="練習">
+      <header class="topbar">
+        <div class="topbar-mascot" data-mascot>
+          <img alt="" style="display:none" />
+          <span class="mascot-fallback" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center">📖</span>
+        </div>
+        <h1>分數加法練習</h1>
+        <span class="meta">李文偉老師 · Iu Shan</span>
+        <span class="meta">學號：<strong id="display-student-id"></strong></span>
+        <button type="button" id="btn-change-id" class="btn btn-ghost btn-sm" title="更換學號">換學號</button>
+        <div class="spacer"></div>
+        <div class="level-switch" role="group" aria-label="級別">
+          <button type="button" data-level="1" class="active">級別 1</button>
+          <button type="button" data-level="2">級別 2</button>
+          <button type="button" data-level="3">級別 3</button>
+        </div>
+        <span class="stage-badge" id="stage-label">第一關・真分數</span>
+        <span class="streak-badge" id="streak-display">第一關 0/3</span>
+        <button type="button" id="btn-new-q" class="btn btn-primary btn-sm">新題</button>
+        <button type="button" id="btn-toggle-hint" class="btn btn-ghost btn-sm">隱藏提示</button>
+      </header>
+
+      <div class="main-row">
+        <!-- Left: work -->
+        <main id="work-panel" class="work-panel" aria-label="橫式解題區">
+          <div class="problem-header">
+            <span class="sub-label" id="problem-sublabel">—</span>
+            <div class="problem-expr" id="problem-expr"></div>
+          </div>
+
+          <div id="complete-banner" class="complete-banner">
+            <h2>🎉 完成！</h2>
+            <p id="complete-msg"></p>
+            <div class="final-expr" id="complete-final"></div>
+            <button type="button" id="btn-again" class="btn btn-primary">再來一題</button>
+            <div id="l1-finish-actions" class="l1-finish-actions" style="display:none">
+              <button type="button" id="btn-upgrade" class="btn btn-primary">升級</button>
+              <button type="button" id="btn-review" class="btn btn-ghost">重温一次</button>
+            </div>
+          </div>
+
+          <div id="steps-list" class="steps-list"></div>
+        </main>
+
+        <!-- Right: hints -->
+        <aside id="hint-panel" class="hint-panel" aria-label="步驟提示">
+          <div class="hint-header">
+            <span>而家呢一步點做</span>
+          </div>
+          <div class="hint-body">
+            <div class="hint-mascot-row">
+              <div class="hint-mascot" data-mascot>
+                <img alt="" style="display:none" />
+                <span class="mascot-fallback" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center">📖</span>
+              </div>
+              <div id="hint-bubble" class="hint-bubble">提示會出現喺呢度。</div>
+            </div>
+            <div id="hint-extra" class="hint-extra"></div>
+            <div id="cpa-bars" class="cpa-bars" style="display:none"></div>
+            <div id="hint-steps-nav" class="hint-steps-nav"></div>
+          </div>
+        </aside>
+      </div>
+
+      <button type="button" id="hint-toggle-fab" class="hint-toggle-fab">顯示提示</button>
+    </section>
+
+    <!-- Stage clear / level-1 done overlay -->
+    <div id="stage-overlay" class="stage-overlay" aria-live="polite">
+      <div class="stage-overlay-card">
+        <div class="stage-overlay-mascot" data-mascot>
+          <img alt="" style="display:none" />
+          <span class="mascot-fallback" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-size:3rem">🎉</span>
+        </div>
+        <h2 id="stage-overlay-title">做得好！</h2>
+        <p id="stage-overlay-msg"></p>
+        <div id="stage-overlay-actions" class="stage-overlay-actions"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/math.js"></script>
+  <script src="js/questions.js"></script>
+  <script src="js/steps.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
