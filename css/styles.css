@@ -907,7 +907,7 @@ button, input {
   }
 }
 
-/* ----- Narrow / phone (portrait or small landscape): page scroll + stack panels ----- */
+/* ----- Narrow / phone: page scroll + keep 左右 (side-by-side) main-row ----- */
 @media (max-width: 900px) {
   html, body {
     height: auto !important;
@@ -933,31 +933,34 @@ button, input {
     height: auto;
     min-height: 100dvh;
   }
+  /* Keep 左右顯示 — do NOT stack to column (user wants side-by-side on phone too) */
   .main-row {
-    flex-direction: column;
+    flex-direction: row;
     flex: 1 1 auto;
     min-height: auto;
+    align-items: stretch;
   }
-  .work-panel,
-  .work-panel.expanded {
-    flex: 1 1 auto;
-    flex-basis: auto !important;
-    max-width: 100% !important;
-    overflow: visible;
+  .work-panel {
+    flex: 0 0 55%;
+    max-width: 55%;
+    overflow: visible; /* page scrolls; do not clip */
     padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px) + 3.5rem); /* room above FAB */
   }
+  .work-panel.expanded {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
   .hint-panel {
-    flex: 0 0 auto;
-    flex-basis: auto !important;
-    max-width: 100% !important;
-    border-left: none;
-    border-top: 2px solid var(--border);
+    flex: 0 0 45%;
+    max-width: 45%;
+    border-left: 2px solid var(--border);
+    border-top: none;
     min-height: auto;
+    overflow: visible;
   }
   .hint-panel.hidden {
     flex-basis: 0 !important;
     max-width: 0 !important;
-    border-top: none;
   }
   .hint-body {
     overflow: visible;
