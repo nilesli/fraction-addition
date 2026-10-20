@@ -121,6 +121,42 @@
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  /** Measure fixed keypad (+ soft portrait tip) for padding-top on ≤1200 practice. */
+  function syncPracticeChromeOffset() {
+    const root = document.documentElement;
+    const keypad = document.getElementById('num-keypad-bar');
+    const tip = document.getElementById('portrait-blocker');
+    const active = document.body.classList.contains('practice-active');
+    let chromeH = 0;
+    let tipH = 0;
+    if (active && keypad) {
+      // Keypad is position:fixed on ≤1200; measure its visible height
+      chromeH = Math.ceil(keypad.getBoundingClientRect().height);
+      if (!chromeH) chromeH = 48;
+    }
+    root.style.setProperty('--practice-chrome-h', chromeH + 'px');
+    if (active && tip) {
+      const cs = getComputedStyle(tip);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden') {
+        tipH = Math.ceil(tip.getBoundingClientRect().height);
+      }
+    }
+    root.style.setProperty('--practice-tip-h', tipH + 'px');
+  }
+
+  function setupPracticeChromePin() {
+    const run = () => syncPracticeChromeOffset();
+    run();
+    window.addEventListener('resize', run);
+    window.addEventListener('orientationchange', () => setTimeout(run, 120));
+    if (typeof ResizeObserver !== 'undefined') {
+      const keypad = document.getElementById('num-keypad-bar');
+      const tip = document.getElementById('portrait-blocker');
+      if (keypad) new ResizeObserver(run).observe(keypad);
+      if (tip) new ResizeObserver(run).observe(tip);
+    }
+  }
+
   function showScreen(id) {
     $$('.screen').forEach((el) => el.classList.remove('active'));
     const s = document.getElementById(id);
@@ -128,6 +164,10 @@
     // Portrait blocker only on practice; start screen must scroll on short phones
     document.body.classList.toggle('start-active', id === 'screen-start');
     document.body.classList.toggle('practice-active', id === 'screen-practice');
+    requestAnimationFrame(() => {
+      syncPracticeChromeOffset();
+      requestAnimationFrame(syncPracticeChromeOffset);
+    });
   }
 
   // ---------- Mascot ----------
@@ -2273,6 +2313,7 @@
   function boot() {
     try {
       bind();
+      setupPracticeChromePin();
       initStart();
     } catch (e) {
       console.error(e);
