@@ -96,7 +96,7 @@
       return {
         level: 1,
         sub: '1A',
-        label: '同分母真分數（要约分）',
+        label: '同分母真分數（要約分）',
         addends: [makeProper(n1, d), makeProper(n2, d)],
         sameDenom: true,
         needFracCarry: false,
@@ -108,7 +108,7 @@
     return {
       level: 1,
       sub: '1A',
-      label: '同分母真分數（要约分）',
+      label: '同分母真分數（要約分）',
       addends: [makeProper(1, 6), makeProper(1, 6)],
       sameDenom: true,
       needFracCarry: false,
@@ -204,7 +204,7 @@
       return {
         level: 1,
         sub: w2 === 0 ? '1BP' : '1B',
-        label: w2 === 0 ? '帶分數加真分數（要约分）' : '同分母帶分數（要约分）',
+        label: w2 === 0 ? '帶分數加真分數（要約分）' : '同分母帶分數（要約分）',
         addends: [a, b],
         sameDenom: true,
         needFracCarry: false,
@@ -216,7 +216,7 @@
     return {
       level: 1,
       sub: '1B',
-      label: '同分母帶分數（要约分）',
+      label: '同分母帶分數（要約分）',
       addends: [makeMixed(1, 1, 6), makeMixed(1, 1, 6)],
       sameDenom: true,
       needFracCarry: false,
@@ -351,7 +351,7 @@
       return {
         level: 2,
         sub: '2B',
-        label: '異分母帶分數（唔使進位）',
+        label: '異分母帶分數（不用進位）',
         addends: [makeMixed(w1, n1, d1), makeMixed(w2, n2, d2)],
         sameDenom: false,
         lcd,
@@ -364,7 +364,7 @@
     return {
       level: 2,
       sub: '2B',
-      label: '異分母帶分數（唔使進位）',
+      label: '異分母帶分數（不用進位）',
       addends: [makeMixed(1, 1, 4), makeMixed(2, 1, 6)],
       sameDenom: false,
       lcd: 12,
@@ -395,7 +395,7 @@
         return {
           level: 2,
           sub: '2C',
-          label: '異分母帶分數（要约分）',
+          label: '異分母帶分數（要約分）',
           addends: [makeMixed(w1, n1, d1), makeMixed(w2, n2, d2)],
           sameDenom: false,
           lcd,
@@ -409,7 +409,7 @@
       return {
         level: 2,
         sub: '2A', // proper shape but stage C
-        label: '異分母真分數（要约分）',
+        label: '異分母真分數（要約分）',
         addends: [makeProper(n1, d1), makeProper(n2, d2)],
         sameDenom: false,
         lcd,
@@ -424,7 +424,7 @@
     return {
       level: 2,
       sub: '2C',
-      label: '異分母帶分數（要约分）',
+      label: '異分母帶分數（要約分）',
       addends: [makeMixed(1, 1, 6), makeMixed(1, 1, 3)],
       sameDenom: false,
       lcd: 6,

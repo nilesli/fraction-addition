@@ -26,7 +26,7 @@
         role: 'short-div-divisor',
         label: `短除除數 ${i + 1}`,
         expected: div,
-        hintExtra: i === 0 ? '短除第一個除數可以試細質數，例如 2。' : null,
+        hintExtra: i === 0 ? '短除第一個除數可以試較小的質數，例如 2。' : null,
       });
     });
     // After each division, the two quotients
@@ -48,9 +48,9 @@
     fields.push({
       key: 'sd_lcm',
       role: 'lcm',
-      label: '公倍數（用嚟通分）',
+      label: '公倍數（用來通分）',
       expected: sd.product,
-      hintExtra: '用左邊除數同最底兩個數相乘，就係最小公倍數。',
+      hintExtra: '用左邊除數和最底兩個數相乘，就是最小公倍數。',
     });
     return fields;
   }
@@ -62,7 +62,7 @@
     return {
       id: 'check-simplify',
       title: '是否需要約分？（黃金密碼：2、3、5、7）',
-      hint: '撳下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填最簡分數。',
+      hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數。',
       isSimplifyChoice: true,
       needsSimplify: needs,
       fields: [],
@@ -87,8 +87,8 @@
       ? '整數加整數，分數加分數'
       : '分子相加，分母不變';
     const properHint = q.forceSimplifyCheck
-      ? '呢題係真分數，冇整數部分。分母相同，將兩個分子加起嚟，分母唔變。下一布先判斷要唔要約分。'
-      : '分母相同，可以直接將兩個分子加起嚟，分母唔變。喺格仔填答案嘅分子同分母。';
+      ? '這題是真分數，沒有整數部分。分母相同，將兩個分子加起來，分母不變。下一步先判斷要不要約分。'
+      : '分母相同，可以直接將兩個分子加起來，分母不變。在空格填寫答案的分子和分母。';
     steps.push({
       id: 'add-nums',
       title: properTitle,
@@ -107,7 +107,7 @@
       steps.push({
         id: 'simplify',
         title: '約至最簡',
-        hint: '分子同分母有公因數，約簡到最簡分數。搵最大公因數嚟除。',
+        hint: '分子和分母有公因數，約簡到最簡分數。找最大公因數來除。',
         fields: [
           { key: 'simp_n', label: '最簡分子', expected: simp.n },
           { key: 'simp_d', label: '最簡分母', expected: simp.d },
@@ -116,7 +116,7 @@
       });
     }
 
-    // 假分數唔使轉帶分數；最後以分數（可為假分數）作答
+    // 假分數不用轉成帶分數；最後以分數（可為假分數）作答
     return steps;
   }
 
@@ -137,8 +137,8 @@
         id: 'add-mixed-together',
         title: '整數加整數，分數加分數',
         hint: q.forceSimplifyCheck
-          ? '帶分數相加：整數加整數、分數加分數，一齊計。真分數嘅整數當 0。分母相同，分子加埋，分母唔變。分數部分加完會細過 1，唔使進位。下一布先判斷要唔要約分。'
-          : '帶分數相加：整數加整數、分數加分數，一齊計。真分數嘅整數當 0。分母相同，分子加埋，分母唔變。分數部分加完會細過 1，唔使進位。',
+          ? '帶分數相加：整數加整數、分數加分數，一齊計算。真分數的整數當作 0。分母相同，分子加起來，分母不變。分數部分加完會小於 1，不用進位。下一步先判斷要不要約分。'
+          : '帶分數相加：整數加整數、分數加分數，一齊計算。真分數的整數當作 0。分母相同，分子加起來，分母不變。分數部分加完會小於 1，不用進位。',
         fields: [
           { key: 'whole_sum', label: '整數和', expected: wholeSum },
           { key: 'frac_n', label: '分子', expected: fracSumN },
@@ -151,7 +151,7 @@
       steps.push({
         id: 'add-wholes',
         title: '整數加整數，分數加分數',
-        hint: '帶分數相加：先將兩個整數部分加埋（真分數嘅整數當 0）。分數部分下一布先加。呢關分數加完會細過 1，唔使進位。',
+        hint: '帶分數相加：先將兩個整數部分加起來（真分數的整數當作 0）。分數部分下一步再加。這一關分數加完會小於 1，不用進位。',
         fields: [
           { key: 'whole_sum', label: '整數和', expected: wholeSum },
         ],
@@ -160,7 +160,7 @@
       steps.push({
         id: 'add-fracs',
         title: '分子相加，分母不變',
-        hint: '而家加分數部分：分母相同，將兩個分子加起嚟，分母唔變。填答案嘅分子同分母。',
+        hint: '現在加分數部分：分母相同，將兩個分子加起來，分母不變。填寫答案的分子和分母。',
         fields: [
           { key: 'frac_n', label: '分子', expected: fracSumN },
           { key: 'frac_d', label: '分母', expected: d },
@@ -173,7 +173,7 @@
       steps.push({
         id: 'check-simplify-mixed',
         title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '撳下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填最簡帶分數（整數唔變）。',
+        hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡帶分數（整數不變）。',
         isSimplifyChoice: true,
         needsSimplify: needsSimp,
         fields: [],
@@ -196,7 +196,7 @@
       steps.push({
         id: 'simplify-mixed',
         title: '約分',
-        hint: '分數部分可以約簡。整數唔使改，只約分子同分母。',
+        hint: '分數部分可以約簡。整數不用改，只約分子和分母。',
         fields: [
           { key: 'final_w', label: '整數', expected: wholeSum },
           { key: 'final_n', label: '分子', expected: s.n },
@@ -208,7 +208,7 @@
       steps.push({
         id: 'final-mixed',
         title: '寫出答案',
-        hint: '整數同分數部分合埋就係答案。記住：可以用假分數作答案，唔一定要轉帶分數。',
+        hint: '整數和分數部分合起來就是答案。記住：可以用假分數作答案，不一定要轉成帶分數。',
         fields: [
           { key: 'final_w', label: '整數', expected: wholeSum },
           { key: 'final_n', label: '分子', expected: fracSumN },
@@ -235,7 +235,7 @@
     steps.push({
       id: 'tongfen',
       title: '通分母',
-      hint: '兩個分母唔同，要先通分。開住提示時，請先喺右邊完成通分過程；完成後先喺左邊填通分後兩個分數。',
+      hint: '兩個分母不同，要先通分。開啟提示時，請先在右邊完成通分過程；完成後再在左邊填寫通分後的兩個分數。',
       fields: [
         { key: 'exp_a_n', label: '第一個擴分分子', expected: ea.n },
         { key: 'exp_a_d', label: '第一個擴分分母', expected: lcd },
@@ -272,7 +272,7 @@
     steps.push({
       id: 'add-nums',
       title: '分子相加',
-      hint: '分母而家相同，將兩個分子加起嚟，分母唔變。如果和係假分數，可以直接用假分數作答案，唔使轉帶分數。',
+      hint: '分母現在相同，將兩個分子加起來，分母不變。如果和是假分數，可以直接用假分數作答案，不用轉成帶分數。',
       fields: [
         { key: 'sum_n', label: '分子', expected: sumN },
         { key: 'sum_d', label: '分母', expected: lcd },
@@ -285,14 +285,14 @@
     if (q.forceSimplifyCheck || q.l2Stage === 'C') {
       const chk = buildSimplifyCheckProper(sumN, lcd, true);
       if (chk) {
-        chk.hint = '撳下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填最簡分數。可以用假分數作答案，唔使轉帶分數。';
+        chk.hint = '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數。可以用假分數作答案，不用轉成帶分數。';
         steps.push(chk);
       }
     } else if (q.level !== 2 && (simp.n !== sumN || simp.d !== lcd)) {
       steps.push({
         id: 'simplify',
         title: '約分',
-        hint: '約至最簡分數。可以用假分數作答案，唔使轉帶分數。',
+        hint: '約至最簡分數。可以用假分數作答案，不用轉成帶分數。',
         fields: [
           { key: 'simp_n', label: '最簡分子', expected: simp.n },
           { key: 'simp_d', label: '最簡分母', expected: simp.d },
@@ -301,7 +301,7 @@
       });
     }
 
-    // 假分數唔使轉帶分數；可用假分數作答案
+    // 假分數不用轉成帶分數；可用假分數作答案
     return steps;
   }
 
@@ -309,7 +309,7 @@
     return {
       id: 'tongfen',
       title: '通分母',
-      hint: '分數部分分母唔同，要先通分。開住提示時，請先喺右邊完成通分過程；完成後先喺左邊填通分後兩個分數部分。',
+      hint: '分數部分分母不同，要先通分。開啟提示時，請先在右邊完成通分過程；完成後再在左邊填寫通分後的兩個分數部分。',
       fields: [
         { key: 'exp_a_n', label: '第一個擴分分子', expected: ea.n },
         { key: 'exp_a_d', label: '第一個擴分分母', expected: lcd },
@@ -372,7 +372,7 @@
     steps.push({
       id: 'add-mixed-together',
       title: '整數加整數，分數加分數',
-      hint: '通分之後分母相同，好似級別 1 帶分數咁：整數加整數、分數加分數一齊計。分數部分加完會細過 1，唔使進位。可以用假分數作答案。',
+      hint: '通分之後分母相同，好像級別 1 帶分數一樣：整數加整數、分數加分數一齊計算。分數部分加完會小於 1，不用進位。可以用假分數作答案。',
       fields: [
         { key: 'whole_sum', label: '整數和', expected: wholeSum },
         { key: 'frac_n', label: '分子', expected: fracSumN },
@@ -388,7 +388,7 @@
       steps.push({
         id: 'check-simplify-mixed',
         title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '撳下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填最簡分數（整數唔變）。可以用假分數作答案，唔使轉帶分數。',
+        hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
         isSimplifyChoice: true,
         needsSimplify: needsSimp,
         fields: [],
@@ -431,7 +431,7 @@
     steps.push({
       id: 'add-mixed-together',
       title: '整數加整數，分數加分數',
-      hint: '通分之後分母相同，好似級別 2 帶分數咁：整數加整數、分數加分數一齊計。如果分數部分 ≥ 1，下一布再進位。可以用假分數作答案。',
+      hint: '通分之後分母相同，好像級別 2 帶分數一樣：整數加整數、分數加分數一齊計算。如果分數部分 ≥ 1，下一步再進位。可以用假分數作答案。',
       fields: [
         { key: 'whole_sum', label: '整數和', expected: wholeSum },
         { key: 'frac_n', label: '分子', expected: fracSumN },
@@ -450,7 +450,7 @@
       steps.push({
         id: 'carry',
         title: '分數進位',
-        hint: '分數部分係假分數（分子 ≥ 分母），要用除法變做帶分數：分子 ÷ 分母，商加去整數，餘數做新分子。請先完成右邊提示，再喺左邊填答案。',
+        hint: '分數部分是假分數（分子 ≥ 分母），要用除法變成帶分數：分子 ÷ 分母，商加到整數，餘數作為新分子。請先完成右邊提示，再在左邊填寫答案。',
         locksLeftUntilHintDone: true,
         process: {
           type: 'carry-guide',
@@ -479,7 +479,7 @@
       steps.push({
         id: 'check-simplify-mixed',
         title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '撳下面「有」或「沒有」。如果有約分，再填最簡分數（整數唔變）。可以用假分數作答案，唔使轉帶分數。',
+        hint: '按下面「有」或「沒有」。如果有約分，再填寫最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
         isSimplifyChoice: true,
         needsSimplify: true,
         fields: [],
@@ -547,11 +547,11 @@
     if (wrongCount < 2) return null;
     const f = step.fields.find((x) => x.key === fieldKey);
     if (f && f.hintExtra) return f.hintExtra;
-    if (fieldKey.startsWith('sd_div')) return '短除第一個除數試細嘅質數，例如 2 或 3。';
-    if (fieldKey.startsWith('sd_')) return '再睇吓短除：兩個數都可以被同一個數整除先寫落左邊。';
-    if (fieldKey.includes('n') || fieldKey.includes('分子')) return '分子計錯咗，慢慢再加一次。';
-    if (fieldKey.includes('d') || fieldKey.includes('分母')) return '分母通常唔變（通分後用公倍數）。';
-    return '慢慢再試下呢一格，可以先用草稿計。';
+    if (fieldKey.startsWith('sd_div')) return '短除第一個除數試較小的質數，例如 2 或 3。';
+    if (fieldKey.startsWith('sd_')) return '再看一看短除：兩個數都可以被同一個數整除，才寫在左邊。';
+    if (fieldKey.includes('n') || fieldKey.includes('分子')) return '分子計算錯了，請慢慢再加一次。';
+    if (fieldKey.includes('d') || fieldKey.includes('分母')) return '分母通常不變（通分後用公倍數）。';
+    return '請慢慢再試這一格，可以先用草稿計算。';
   }
 
   global.FracSteps = {

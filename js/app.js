@@ -31,6 +31,7 @@
     pendingStageAdvance: null, // 'B' | 'C' | 'done' after celebration
     hintGuideStage: 0, // 0要通分 1短除+乘數 2擴分
     hintGuideDone: false,
+    lastSubmittedAnswer: null, // {w,n,d} form student actually entered on final check
   };
 
   const MASCOT_FILES = {
@@ -228,6 +229,62 @@
     return htmlMixed(ans.w, ans.n, ans.d);
   }
 
+  /** Build {w,n,d} from graded fields + student values (prefer what they typed). */
+  function answerShapeFromFields(fields, values) {
+    if (!fields || !fields.length) return null;
+    const map = {};
+    fields.forEach((f) => {
+      const raw = values && values[f.key] !== undefined && values[f.key] !== ''
+        ? values[f.key]
+        : f.expected;
+      const num = Number(raw);
+      if (Number.isFinite(num)) map[f.key] = num;
+    });
+    const keys = Object.keys(map);
+    const wKey = keys.find((k) =>
+      k === 'whole_sum' || k === 'final_w' || k === 'carry_w' || k === 'mix_w' || k === 'final_w_only'
+    );
+    const nKey = keys.find((k) =>
+      k === 'frac_n' || k === 'sum_n' || k === 'simp_n' || k === 'final_n' ||
+      k === 'check_n' || k === 'carry_n' || k === 'mix_n' ||
+      (k.endsWith('_n') && k !== wKey)
+    );
+    const dKey = keys.find((k) =>
+      k === 'frac_d' || k === 'sum_d' || k === 'simp_d' || k === 'final_d' ||
+      k === 'check_d' || k === 'carry_d' || k === 'mix_d' ||
+      (k.endsWith('_d') && !String(k).startsWith('exp_'))
+    );
+    if (wKey !== undefined && nKey && dKey) {
+      return { w: map[wKey], n: map[nKey], d: map[dKey] };
+    }
+    if (wKey !== undefined && (!nKey || !dKey)) {
+      return { w: map[wKey], n: 0, d: 1 };
+    }
+    if (nKey && dKey) {
+      return { w: 0, n: map[nKey], d: map[dKey] };
+    }
+    return null;
+  }
+
+  function rememberSubmittedAnswer(stepOrGrade, values) {
+    const fields = (stepOrGrade && stepOrGrade.fields) ||
+      (stepOrGrade && stepOrGrade.answerFields) ||
+      null;
+    const shape = answerShapeFromFields(fields, values || {});
+    if (shape) state.lastSubmittedAnswer = shape;
+  }
+
+  /** Completion display: student's submitted form; never force improper from mixed. */
+  function displayAnswerForComplete(q) {
+    if (state.lastSubmittedAnswer) return state.lastSubmittedAnswer;
+    const computed = FracQuestions.computeAnswer(q);
+    const hasMixed = (q.addends || []).some((a) => a.type === 'mixed' || (a.w || 0) > 0);
+    if (hasMixed && computed.n && computed.d && !(computed.w > 0)) {
+      return FracMath.toMixed(computed.n, computed.d);
+    }
+    return computed;
+  }
+
   // ---------- Start screen ----------
   function initStart() {
     const saved = safeStorage.get(STORAGE_ID);
@@ -249,12 +306,12 @@
     const err = $('#start-error');
     const raw = (input.value || '').trim();
     if (!raw) {
-      err.textContent = '請輸入學號先可以開始練習呀！';
+      err.textContent = '請先輸入學號，才可以開始練習！';
       input.focus();
       return;
     }
     if (raw.length > 20) {
-      err.textContent = '學號請唔好超過 20 個字。';
+      err.textContent = '學號請不要超過 20 個字。';
       input.focus();
       return;
     }
@@ -265,7 +322,7 @@
       startPractice();
     } catch (e) {
       console.error(e);
-      err.textContent = '開始練習出咗問題，請再試一次或換個瀏覽器開。';
+      err.textContent = '開始練習出現問題，請再試一次或換另一個瀏覽器開啟。';
     }
   }
 
@@ -359,6 +416,7 @@
     state.currentStep = 0;
     state.complete = false;
     state.wrongCounts = {};
+    state.lastSubmittedAnswer = null;
     resetHintGuide();
     setMascot('guide');
     renderPractice();
@@ -427,9 +485,9 @@
           lockMsg.className = 'left-lock-msg';
           const pType = step.process && step.process.type;
           if (pType === 'carry-guide') {
-            lockMsg.textContent = '請先喺右邊學完點樣將假分數變做帶分數，完成後就可以喺左邊作答。';
+            lockMsg.textContent = '請先在右邊學完怎樣將假分數變成帶分數，完成後就可以在左邊作答。';
           } else {
-            lockMsg.textContent = '請先喺右邊完成通分過程（要通分 → 短除法 → 擴分），完成後就可以喺左邊作答。';
+            lockMsg.textContent = '請先在右邊完成通分過程（要通分 → 短除法 → 擴分），完成後就可以在左邊作答。';
           }
           work.appendChild(lockMsg);
         }
@@ -486,7 +544,7 @@
       // Keep mixed 整數 visible in step1 通分母
       wrap.innerHTML = `${htmlAddend(s.a)}<span class="op">+</span>${htmlAddend(s.b)}`;
     } else if (s.type === 'short-div') {
-      wrap.innerHTML = `<span>分母 ${s.a} 同 ${s.b}</span>`;
+      wrap.innerHTML = `<span>分母 ${s.a} 和 ${s.b}</span>`;
     } else if (s.type === 'expand' || s.type === 'expand-parts') {
       wrap.innerHTML = `${htmlAddend(s.a)} → ？　　${htmlAddend(s.b)} → ？`;
     } else if (s.type === 'sum-expanded') {
@@ -608,7 +666,7 @@
     if (keys.includes('exp_a_n')) {
       wrap.appendChild(document.createTextNode(' → '));
       wrap.appendChild(buildFracInput(step, 'exp_a_n', 'exp_a_d', readonly));
-      wrap.appendChild(document.createTextNode('　同　'));
+      wrap.appendChild(document.createTextNode('　和　'));
       wrap.appendChild(buildFracInput(step, 'exp_b_n', 'exp_b_d', readonly));
       return wrap;
     }
@@ -623,7 +681,7 @@
     // d1, d2 — 通分母結果（通分後兩個分母）
     if (keys.includes('d1') && keys.includes('d2')) {
       wrap.appendChild(buildLabeledInput(step, 'd1', '通分母①', readonly));
-      wrap.appendChild(document.createTextNode('　同　'));
+      wrap.appendChild(document.createTextNode('　和　'));
       wrap.appendChild(buildLabeledInput(step, 'd2', '通分母②', readonly));
       return wrap;
     }
@@ -732,7 +790,7 @@
     box.style.flexWrap = 'wrap';
     const s = step.show || {};
     const ctx = document.createElement('span');
-    ctx.textContent = '分母 ' + (s.a != null ? s.a : '') + ' 同 ' + (s.b != null ? s.b : '') + ' →';
+    ctx.textContent = '分母 ' + (s.a != null ? s.a : '') + ' 和 ' + (s.b != null ? s.b : '') + ' →';
     box.appendChild(ctx);
     const lcmRow = document.createElement('div');
     lcmRow.className = 'sd-lcm-row';
@@ -872,7 +930,7 @@
     if (!step._showAnswer) {
       const prompt = document.createElement('div');
       prompt.className = 'simplify-choice-prompt';
-      prompt.textContent = '有冇約分？';
+      prompt.textContent = '有沒有約分？';
       box.appendChild(prompt);
 
       const row = document.createElement('div');
@@ -899,7 +957,7 @@
     // Answer phase after correct 「有」
     const note = document.createElement('div');
     note.className = 'simplify-choice-prompt';
-    note.innerHTML = colorizeMathTerms('啱！請填最簡分子／分母（整數唔變）：');
+    note.innerHTML = colorizeMathTerms('對！請填寫最簡分子／分母（整數不變）：');
     box.appendChild(note);
 
     if (!step.fields || !step.fields.length) {
@@ -933,9 +991,21 @@
       step._choice = saidHas;
       if (!needs) {
         // 「沒有」且正確 → 即時過關（通常係最後一步）
+        // 用上一布學生填嘅（或 expected）作完成畫面答案形式
+        if (i + 1 >= state.steps.length) {
+          const prev = state.steps[i - 1];
+          if (prev && prev.fields && prev.fields.length) {
+            const prevVals = collectValues(i - 1);
+            const useDom = allFieldsFilled(prev, prevVals);
+            const vals = useDom
+              ? prevVals
+              : Object.fromEntries(prev.fields.map((f) => [f.key, String(f.expected)]));
+            rememberSubmittedAnswer(prev, vals);
+          }
+        }
         if (fb) {
           fb.className = 'step-feedback ok';
-          fb.textContent = '✓ 啱！唔使約分。';
+          fb.textContent = '✓ 對！不用約分。';
         }
         setMascot('thumbsup');
         setTimeout(() => advanceAfterStepOk(i), 350);
@@ -946,7 +1016,7 @@
         step.fields = step.answerFields.slice();
         if (fb) {
           fb.className = 'step-feedback ok';
-          fb.textContent = '✓ 啱！而家填最簡分數啦。';
+          fb.textContent = '✓ 對！現在請填寫最簡分數。';
         }
         setMascot('thumbsup');
         renderSteps();
@@ -962,8 +1032,8 @@
       if (fb) {
         fb.className = 'step-feedback err';
         fb.textContent = needs
-          ? '再諗諗：其實要約分㗎，試下撳「有」。'
-          : '再諗諗：已經最簡，唔使約分，試下撳「沒有」。';
+          ? '再想一想：其實需要約分，請按「有」。'
+          : '再想一想：已經是最簡分數，不用約分，請按「沒有」。';
       }
       setMascot('think');
       const wk = `${i}:choice`;
@@ -971,8 +1041,8 @@
       const extraEl = $('#hint-extra');
       if ((state.wrongCounts[wk] || 0) >= 2 && extraEl) {
         extraEl.innerHTML = colorizeMathTerms(needs
-          ? '多一層提示：分子同分母有公因數就可以約。'
-          : '多一層提示：分子同分母冇公因數就係最簡。');
+          ? '多一層提示：分子和分母有公因數就可以約分。'
+          : '多一層提示：分子和分母沒有公因數就是最簡分數。');
         extraEl.classList.add('show');
       }
     }
@@ -1041,7 +1111,7 @@
       const fb = $('#step-feedback');
       if (fb) {
         fb.className = 'step-feedback err';
-        fb.textContent = '請先撳「有」或「沒有」。';
+        fb.textContent = '請先按「有」或「沒有」。';
       }
       return;
     }
@@ -1055,7 +1125,7 @@
       const fb = $('#step-feedback');
       if (fb) {
         fb.className = 'step-feedback err';
-        fb.textContent = '請填晒呢一步所有格仔再核對。';
+        fb.textContent = '請填妥這一步所有空格再核對。';
       }
       return;
     }
@@ -1081,6 +1151,10 @@
 
     const fb = $('#step-feedback');
     if (result.allOk) {
+      // Final accepted step → remember student's answer shape for completion screen
+      if (i + 1 >= state.steps.length) {
+        rememberSubmittedAnswer(gradeStep, values);
+      }
       if (fb) {
         fb.className = 'step-feedback ok';
         fb.textContent = '✓ 做得好！';
@@ -1090,7 +1164,7 @@
     } else {
       if (fb) {
         fb.className = 'step-feedback err';
-        fb.textContent = '呢格再試下，唔使緊。';
+        fb.textContent = '這一格請再試，不要緊。';
       }
       setMascot('think');
       // Extra hints after 2–3 wrongs
@@ -1160,10 +1234,10 @@
     saveStreaks();
     setMascot('celebrate');
 
-    const ans = FracQuestions.computeAnswer(state.question);
+    const q = state.question;
+    const ans = displayAnswerForComplete(q);
     const banner = $('#complete-banner');
     banner.classList.add('show');
-    const q = state.question;
     const [a, b] = q.addends;
     const fa = a.type === 'mixed' ? htmlMixed(a.w, a.n, a.d) : htmlFrac(a.n, a.d);
     const fb = b.type === 'mixed' ? htmlMixed(b.w, b.n, b.d) : htmlFrac(b.n, b.d);
@@ -1181,7 +1255,7 @@
       const need = STAGE_STREAK_NEED;
       const meta = L1_STAGE_META[state.l1Stage];
       $('#complete-msg').textContent =
-        `做得好！呢一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案。`;
+        `做得好！這一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案。`;
 
       renderSteps();
       renderHints();
@@ -1193,7 +1267,7 @@
           if (againBtn) againBtn.style.display = 'none';
           showStageOverlay({
             title: '做得好！',
-            msg: `你已經連續答對 ${need} 題。難度會提升啦！下一關：${L1_STAGE_META[next].label}`,
+            msg: `你已經連續答對 ${need} 題。難度會提升！下一關：${L1_STAGE_META[next].label}`,
             mascot: 'celebrate',
             buttons: [
               {
@@ -1210,10 +1284,10 @@
         if (againBtn) againBtn.style.display = 'none';
         if (upgradeRow) upgradeRow.style.display = 'flex';
         $('#complete-msg').textContent =
-          '做得好！級別 1 三關都過咗。可以升級去級別 2，或者重温一次。';
+          '做得好！級別 1 三關都過了。可以升級到級別 2，或者重溫一次。';
         showStageOverlay({
           title: '做得好！',
-          msg: '你可以升級去級別 2 學異分母，或者重温一次（由第一關再練）。',
+          msg: '你可以升級到級別 2 學習異分母，或者重溫一次（由第一關再練習）。',
           mascot: 'thumbsup',
           buttons: [
             {
@@ -1225,7 +1299,7 @@
               },
             },
             {
-              label: '重温一次',
+              label: '重溫一次',
               primary: false,
               onClick: () => {
                 hideStageOverlay();
@@ -1244,7 +1318,7 @@
       const need = L2_STAGE_STREAK_NEED; // 連對兩題（含提示）升級
       const meta = L2_STAGE_META[state.l2Stage];
       $('#complete-msg').textContent =
-        `做得好！呢一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案，唔使轉帶分數。`;
+        `做得好！這一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案，不用轉成帶分數。`;
 
       renderSteps();
       renderHints();
@@ -1257,7 +1331,7 @@
           const nextLabel = next === 'B' ? '繼續下一關・帶分數' : '繼續下一關・約分';
           showStageOverlay({
             title: '做得好！',
-            msg: `你已經連續答對 ${need} 題。難度會提升啦！下一關：${L2_STAGE_META[next].label}`,
+            msg: `你已經連續答對 ${need} 題。難度會提升！下一關：${L2_STAGE_META[next].label}`,
             mascot: 'celebrate',
             buttons: [
               {
@@ -1272,14 +1346,14 @@
         // Stage C cleared
         state.pendingStageAdvance = 'L2done';
         $('#complete-msg').textContent =
-          '做得好！級別 2 三關都過咗。可以升級去級別 3，或者重温。可以用假分數作答案。';
+          '做得好！級別 2 三關都過了。可以升級到級別 3，或者重溫。可以用假分數作答案。';
         showStageOverlay({
           title: '做得好！',
-          msg: '級別 2 真分數、帶分數同約分都練過啦。可以升級去級別 3，或者由第一關重温。',
+          msg: '級別 2 真分數、帶分數和約分都練習過了。可以升級到級別 3，或者由第一關重溫。',
           mascot: 'thumbsup',
           buttons: [
             {
-              label: '升級去級別 3',
+              label: '升級到級別 3',
               primary: true,
               onClick: () => {
                 hideStageOverlay();
@@ -1297,7 +1371,7 @@
               },
             },
             {
-              label: '重温第一關',
+              label: '重溫第一關',
               primary: false,
               onClick: () => {
                 hideStageOverlay();
@@ -1313,7 +1387,7 @@
     } else {
       updateStreakUI();
       $('#complete-msg').textContent =
-        `好叻呀！本級已連續答對 ${state.streaks[state.level]} 題。可以用假分數作答案，唔使轉帶分數。`;
+        `很棒！本級已連續答對 ${state.streaks[state.level]} 題。可以用假分數作答案，不用轉成帶分數。`;
     }
 
     renderSteps();
@@ -1381,7 +1455,7 @@
     // Stage pills
     const pills = document.createElement('div');
     pills.className = 'hint-guide-pills';
-    const names = ['要通分', '短除法搵公倍數', '兩個分數分別擴分'];
+    const names = ['要通分', '短除法找公倍數', '兩個分數分別擴分'];
     names.forEach((name, i) => {
       const pill = document.createElement('div');
       let cls = 'hint-guide-pill';
@@ -1401,7 +1475,7 @@
       // Keep step-3 分別擴分 results visible (read-only) as reference for left answering
       const ok = document.createElement('p');
       ok.className = 'hint-guide-ok';
-      ok.textContent = '✓ 通分過程完成！下面擴分結果可以對照左邊作答，再撳「核對本步」。';
+      ok.textContent = '✓ 通分過程完成！下面擴分結果可以對照左邊作答，再按「核對本步」。';
       body.appendChild(ok);
       const h = document.createElement('h4');
       h.textContent = '③ 兩個分數分別擴分（參考）';
@@ -1426,7 +1500,7 @@
     h.textContent = '① 要通分';
     body.appendChild(h);
     const p = document.createElement('p');
-    p.innerHTML = colorizeMathTerms('兩個分母唔同，份嘅大小唔一樣，唔可以直接加分子。請填出兩個分母：');
+    p.innerHTML = colorizeMathTerms('兩個分母不同，份的大小不一樣，不可以直接加分子。請填出兩個分母：');
     body.appendChild(p);
     const list = document.createElement('div');
     list.className = 'hint-denom-list';
@@ -1480,12 +1554,12 @@
       }
       if (ok) {
         fb.className = 'step-feedback ok';
-        fb.textContent = '✓ 分母啱！';
+        fb.textContent = '✓ 分母正確！';
         state.hintGuideStage = 1;
         setTimeout(() => renderHints(), 350);
       } else {
         fb.className = 'step-feedback err';
-        fb.textContent = '再睇吓題目兩個分母，填入格仔。';
+        fb.textContent = '再看一看題目的兩個分母，填入空格。';
       }
     });
     body.appendChild(btn);
@@ -1503,7 +1577,7 @@
 
   function renderGuideStageShortDiv(body, step, P) {
     const h = document.createElement('h4');
-    h.textContent = '② 短除法搵公倍數';
+    h.textContent = '② 短除法找公倍數';
     body.appendChild(h);
     const sd = P.sd;
     // Reuse process UI; grade short-div fields against a synthetic step
@@ -1573,7 +1647,7 @@
     body.appendChild(mul);
     const tip = document.createElement('p');
     tip.className = 'hint-guide-tip';
-    tip.textContent = '將短除左邊每個除數，同埋最底兩個數，全部填入相乘，得出最小公倍數。';
+    tip.textContent = '將短除左邊每個除數，以及最底兩個數，全部填入相乘，得出最小公倍數。';
     body.appendChild(tip);
 
     const fb = document.createElement('div');
@@ -1630,12 +1704,12 @@
       // Never skip to done here — only advance to stage 2 (擴分)
       const fbEl = $('#hint-guide-fb');
       if (allOk) {
-        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 短除同公倍數啱！下一步擴分。'; }
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 短除和公倍數正確！下一步擴分。'; }
         state.hintGuideStage = 2; // MUST go to 分別擴分 — do not set hintGuideDone
         state.hintGuideDone = false;
         setTimeout(() => renderHints(), 350);
       } else {
-        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再試下短除格仔、相乘同公倍數。'; }
+        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '請再試短除空格、相乘和公倍數。'; }
       }
     });
     body.appendChild(btn);
@@ -1647,7 +1721,7 @@
     body.appendChild(h);
     const tip = document.createElement('p');
     tip.className = 'hint-guide-tip';
-    tip.innerHTML = colorizeMathTerms('每個分數分子同埋分母都要乘同一個倍數，令分母變成 ' + P.lcd + '。');
+    tip.innerHTML = colorizeMathTerms('每個分數的分子和分母都要乘同一個倍數，令分母變成 ' + P.lcd + '。');
     body.appendChild(tip);
 
     body.appendChild(buildExpandGuideRow(P.a, P.multA, P.ea.n, P.lcd, 'a'));
@@ -1683,7 +1757,7 @@
       });
       const fbEl = $('#hint-guide-fb');
       if (allOk) {
-        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 擴分啱！'; }
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 擴分正確！'; }
         state.hintGuideDone = true;
         setMascot('thumbsup');
         setTimeout(() => {
@@ -1691,7 +1765,7 @@
           renderHints();
         }, 350);
       } else {
-        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再睇吓倍數同擴分後分子。'; }
+        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再看一看倍數和擴分後的分子。'; }
       }
     });
     body.appendChild(btn);
@@ -1889,15 +1963,15 @@
     // colorizeMathTerms escapes HTML — build markup after coloring plain text
     p.innerHTML =
       '分數部分 <strong class="term-num">' + P.n + '</strong>/<strong class="term-den">' + P.d + '</strong>：' +
-      colorizeMathTerms('分子 ' + P.n + ' ≥ 分母 ' + P.d + '，所以係') +
+      colorizeMathTerms('分子 ' + P.n + ' ≥ 分母 ' + P.d + '，所以是') +
       '<strong>假分數</strong>' +
-      colorizeMathTerms('（大過或等於 1）。假分數要先變做') +
+      colorizeMathTerms('（大於或等於 1）。假分數要先變成') +
       '<strong>帶分數</strong>' +
-      colorizeMathTerms('，先好同整數合埋。');
+      colorizeMathTerms('，才可以和整數合起來。');
     body.appendChild(p);
     const tip = document.createElement('p');
     tip.className = 'hint-guide-tip';
-    tip.textContent = '下一步會用「分子 ÷ 分母」搵商同餘數。';
+    tip.textContent = '下一步會用「分子 ÷ 分母」找商和餘數。';
     body.appendChild(tip);
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1918,7 +1992,7 @@
     const tip = document.createElement('p');
     tip.className = 'hint-guide-tip';
     tip.innerHTML =
-      colorizeMathTerms('用分子 ÷ 分母搵商同餘數；') +
+      colorizeMathTerms('用分子 ÷ 分母找商和餘數；') +
       colorizeMathTerms('然後 ') +
       '<strong>整數＋商＋餘/分母</strong>' +
       colorizeMathTerms(' = 帶分數。');
@@ -1949,7 +2023,7 @@
 
     const join = document.createElement('p');
     join.style.margin = '0.75rem 0 0.35rem';
-    join.innerHTML = colorizeMathTerms('合埋帶分數：');
+    join.innerHTML = colorizeMathTerms('合起來成為帶分數：');
     body.appendChild(join);
 
     // (整數) + (商) + (餘)/分母 = [新整數] [新分子]/分母  （分數用分線）
@@ -2033,7 +2107,7 @@
       });
       const fbEl = $('#hint-guide-fb');
       if (allOk) {
-        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 假分數變帶分數啱！'; }
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 假分數變成帶分數正確！'; }
         state.hintGuideDone = true;
         setMascot('thumbsup');
         setTimeout(() => {
@@ -2043,7 +2117,7 @@
       } else {
         if (fbEl) {
           fbEl.className = 'step-feedback err';
-          fbEl.textContent = '再試：' + P.n + ' ÷ ' + P.d + ' 嘅商同餘數，再加去整數 ' + P.whole + '。';
+          fbEl.textContent = '請再試：' + P.n + ' ÷ ' + P.d + ' 的商和餘數，再加到整數 ' + P.whole + '。';
         }
       }
     });
@@ -2055,7 +2129,7 @@
     const bubble = $('#hint-bubble');
     if (!bubble) return;
     if (state.complete) {
-      bubble.innerHTML = colorizeMathTerms('全部步驟都完成啦！左邊可以回顧成條橫式過程。按「再來一題」繼續練習。');
+      bubble.innerHTML = colorizeMathTerms('全部步驟都完成了！左邊可以回顧整條橫式過程。按「再來一題」繼續練習。');
       $('#hint-extra').classList.remove('show');
       return;
     }

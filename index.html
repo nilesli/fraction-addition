@@ -8,13 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20261020r17" />
+  <link rel="stylesheet" href="css/styles.css?v=20261020r19" />
 </head>
 <body class="start-active">
   <!-- Portrait blocker -->
   <div id="portrait-blocker" aria-live="polite">
     <div class="icon">📱</div>
-    <div>橫放會睇得更清楚（直向都可以繼續練習）</div>
+    <div>橫放會看得更清楚（直向也可以繼續練習）</div>
   </div>
 
   <!-- Body-level keypad: escapes .practice-chrome stacking context so z-index:300 beats tip -->
@@ -44,9 +44,9 @@
         </div>
         <h1>分數加法練習</h1>
         <p class="teacher">李文偉老師 · Iu Shan</p>
-        <p style="color:var(--muted);margin:0 0 1rem;font-size:1rem">一步一步嚟，錯咗唔緊要，再試過就得！</p>
+        <p style="color:var(--muted);margin:0 0 1rem;font-size:1rem">一步一步來，做錯了不要緊，再試一次就可以！</p>
         <label for="student-id-input">學號</label>
-        <input id="student-id-input" type="text" maxlength="20" placeholder="輸入你嘅學號" autocomplete="off" />
+        <input id="student-id-input" type="text" maxlength="20" placeholder="輸入你的學號" autocomplete="off" />
         <div id="start-error" class="start-error" role="alert"></div>
         <button type="button" id="btn-start" class="btn btn-primary" onclick="window.__fracStart&&window.__fracStart()" style="width:100%;margin-top:0.25rem">開始練習</button>
       </div>
@@ -85,7 +85,7 @@
             <div class="problem-expr" id="problem-expr"></div>
           </div>
           <div id="improper-reminder" class="improper-reminder" role="note">
-            提示：可以用<strong>假分數</strong>作答案，唔使轉成帶分數。
+            提示：可以用<strong>假分數</strong>作答案，不用轉成帶分數。
           </div>
 
           <div id="complete-banner" class="complete-banner">
@@ -95,7 +95,7 @@
             <button type="button" id="btn-again" class="btn btn-primary">再來一題</button>
             <div id="l1-finish-actions" class="l1-finish-actions" style="display:none">
               <button type="button" id="btn-upgrade" class="btn btn-primary">升級</button>
-              <button type="button" id="btn-review" class="btn btn-ghost">重温一次</button>
+              <button type="button" id="btn-review" class="btn btn-ghost">重溫一次</button>
             </div>
           </div>
 
@@ -105,7 +105,7 @@
         <!-- Right: 提示 + 通分過程（短除法等） -->
         <aside id="hint-panel" class="hint-panel" aria-label="步驟提示">
           <div class="hint-header">
-            <span>而家呢一步點做</span>
+            <span>現在這一步怎樣做</span>
           </div>
           <div class="hint-body">
             <div class="hint-mascot-row">
@@ -113,7 +113,7 @@
                 <img alt="" style="display:none" />
                 <span class="mascot-fallback" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center">📖</span>
               </div>
-              <div id="hint-bubble" class="hint-bubble">提示會出現喺呢度。</div>
+              <div id="hint-bubble" class="hint-bubble">提示會出現在這裏。</div>
             </div>
             <div id="hint-process" class="hint-process" style="display:none" aria-label="通分過程"></div>
             <div id="hint-extra" class="hint-extra"></div>
@@ -140,9 +140,9 @@
     </div>
   </div>
 
-  <script src="js/math.js?v=20261020r17"></script>
-  <script src="js/questions.js?v=20261020r17"></script>
-  <script src="js/steps.js?v=20261020r17"></script>
-  <script src="js/app.js?v=20261020r17"></script>
+  <script src="js/math.js?v=20261020r19"></script>
+  <script src="js/questions.js?v=20261020r19"></script>
+  <script src="js/steps.js?v=20261020r19"></script>
+  <script src="js/app.js?v=20261020r19"></script>
 </body>
 </html>
