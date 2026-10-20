@@ -226,33 +226,37 @@
     };
   }
 
-  /** Stage C: random proper/mixed; randomly need simplify; always forceSimplifyCheck. */
+  /** Stage C: ≥1 帶分數 (mixed); randomly need simplify; always forceSimplifyCheck.
+   *  Never emits proper+proper — at least one addend is a mixed number. */
+  function hasMixedAddend(q) {
+    return !!(q && q.addends && q.addends.some((x) => x.type === 'mixed' || (x.w || 0) > 0));
+  }
+
   function gen1StageC() {
     const wantSimp = Math.random() < 0.55;
-    const kind = M.pick(['proper', 'mixed', 'mixedProper']);
+    // Always ≥1 帶分數: mixed+mixed or mixed+proper (never proper+proper)
+    const kind = M.pick(['mixed', 'mixedProper']);
     let q;
-    if (kind === 'proper') {
-      q = wantSimp ? gen1ANeedsSimplify() : gen1ANoSimplify();
-    } else if (kind === 'mixed') {
+    if (kind === 'mixed') {
       q = wantSimp ? gen1BNeedsSimplify() : gen1BNoSimplify();
     } else {
       if (wantSimp) {
         q = gen1BNeedsSimplify();
-        // prefer mixed+proper shape
-        if (q.addends[1].type !== 'proper' && q.addends[0].type !== 'proper') {
-          q = gen1ANeedsSimplify(); // fallback ok
-          // try again for MP needing simp
-          for (let i = 0; i < 30; i++) {
-            const t = gen1BNeedsSimplify();
-            if (t.sub === '1BP' || t.addends.some((x) => x.type === 'proper')) {
-              q = t;
-              break;
-            }
+        // Prefer mixed+proper shape; never fall back to proper+proper
+        for (let i = 0; i < 30; i++) {
+          const t = gen1BNeedsSimplify();
+          if (t.sub === '1BP' || t.addends.some((x) => x.type === 'proper')) {
+            q = t;
+            break;
           }
         }
       } else {
         q = gen1MixedPlusProperNoSimplify();
       }
+    }
+    // Final guard: L1 第三關必須最少有一個帶分數
+    if (!hasMixedAddend(q)) {
+      q = wantSimp ? gen1BNeedsSimplify() : gen1MixedPlusProperNoSimplify();
     }
     q.forceSimplifyCheck = true;
     q.skipSimplifyStep = false;
@@ -265,7 +269,17 @@
   function assertNoL1Carry(q) {
     const [a, b] = q.addends;
     if (!a || !b || a.d !== b.d || a.n + b.n >= a.d) {
-      const safe = gen1ANoSimplify();
+      let safe;
+      if (q && q.l1Stage === 'C') {
+        // Stage C must keep ≥1 帶分數
+        safe = gen1BNeedsSimplify();
+        safe.forceSimplifyCheck = true;
+        safe.skipSimplifyStep = false;
+      } else if (q && q.l1Stage === 'B') {
+        safe = gen1BNoSimplify();
+      } else {
+        safe = gen1ANoSimplify();
+      }
       safe.l1Stage = q && q.l1Stage;
       return safe;
     }
@@ -597,8 +611,17 @@
     if (!addendsStartSimplified(q)) {
       // last-resort known-good (already simplified addends)
       if (level === 1) {
-        q = gen1ANoSimplify();
-        q.l1Stage = (opts && opts.l1Stage) || 'A';
+        const st = (opts && opts.l1Stage) || 'A';
+        if (st === 'C') {
+          q = gen1BNeedsSimplify();
+          q.forceSimplifyCheck = true;
+          q.skipSimplifyStep = false;
+        } else if (st === 'B') {
+          q = gen1BNoSimplify();
+        } else {
+          q = gen1ANoSimplify();
+        }
+        q.l1Stage = st;
         q = assertNoL1Carry(q);
       } else if (level === 2) {
         const st = (opts && opts.l2Stage) || 'A';
