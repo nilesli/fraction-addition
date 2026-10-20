@@ -30,8 +30,10 @@ html, body {
   background: linear-gradient(135deg, #e0f2fe 0%, #e8f5f2 50%, #f0fdf4 100%);
   color: var(--text);
   font-size: 18px;
-  /* Default: page can scroll (phones). Wide landscape practice locks below. */
-  overflow-x: hidden;
+  /* Default: page can scroll (phones). Wide landscape practice locks below.
+     Prefer overflow-x:clip (not hidden) so position:sticky chrome works on iOS. */
+  overflow-x: hidden; /* fallback */
+  overflow-x: clip;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -46,7 +48,8 @@ html, body {
 /* Start / practice: always allow vertical page scroll on short viewports */
 body.start-active,
 body.practice-active {
-  overflow-x: hidden;
+  overflow-x: hidden; /* fallback */
+  overflow-x: clip;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -329,6 +332,15 @@ button, input {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  /* Sticky on all viewports: desktop body rarely scrolls (panels scroll),
+     but when the page does scroll (phones), chrome stays pinned. */
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100%;
+  align-self: flex-start; /* flex sticky gotcha: don't stretch full parent height */
+  background: linear-gradient(135deg, #e0f2fe 0%, #e8f5f2 50%, #f0fdf4 100%);
 }
 
 /* On-screen numeric keypad — single compact row under topbar (mobile-friendly) */
@@ -1258,7 +1270,8 @@ button, input {
     height: auto !important;
     min-height: 100%;
     min-height: 100dvh;
-    overflow-x: hidden !important;
+    /* clip (not hidden) so position:sticky on .practice-chrome keeps working on iOS */
+    overflow-x: clip !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
   }
@@ -1322,15 +1335,34 @@ button, input {
     overflow: visible;
     flex: 0 0 auto;
   }
+  /* Keep chrome (topbar + keypad) pinned while page scrolls.
+     overflow-x:hidden on html/body is a known sticky-breaker on iOS —
+     use clip (no scrollport) and force ancestors visible. */
+  html {
+    overflow-x: clip;
+  }
+  #app-root,
+  #screen-practice,
+  #screen-practice.screen.active {
+    overflow: visible !important;
+  }
   .practice-chrome {
+    position: -webkit-sticky;
     position: sticky;
     top: 0;
     z-index: 40;
+    width: 100%;
+    align-self: flex-start;
     background: linear-gradient(135deg, #e0f2fe 0%, #e8f5f2 50%, #f0fdf4 100%);
+    /* solid underlay so scrolled content never shows through */
+    box-shadow: 0 1px 0 rgba(13, 148, 136, 0.12);
   }
   .topbar {
     position: relative;
     z-index: auto;
+  }
+  .num-keypad-bar {
+    background: rgba(255,255,255,0.98);
   }
   /* Soft portrait tip stays sticky above content */
   body.practice-active #portrait-blocker {
