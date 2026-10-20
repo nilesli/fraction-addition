@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20261017r2" />
+  <link rel="stylesheet" href="css/styles.css?v=20261020r16" />
 </head>
 <body class="start-active">
   <!-- Portrait blocker -->
@@ -37,6 +37,7 @@
 
     <!-- ===== Practice ===== -->
     <section id="screen-practice" class="screen" aria-label="練習">
+      <div class="practice-chrome">
       <header class="topbar">
         <div class="topbar-mascot" data-mascot>
           <img alt="" style="display:none" />
@@ -58,12 +59,32 @@
         <button type="button" id="btn-toggle-hint" class="btn btn-ghost btn-sm">隱藏提示</button>
       </header>
 
+      <div class="num-keypad-bar" id="num-keypad-bar">
+        <div class="num-keypad" id="num-keypad" role="group" aria-label="數字鍵盤">
+          <button type="button" data-key="1">1</button>
+          <button type="button" data-key="2">2</button>
+          <button type="button" data-key="3">3</button>
+          <button type="button" data-key="4">4</button>
+          <button type="button" data-key="5">5</button>
+          <button type="button" data-key="6">6</button>
+          <button type="button" data-key="7">7</button>
+          <button type="button" data-key="8">8</button>
+          <button type="button" data-key="9">9</button>
+          <button type="button" data-key="0">0</button>
+          <button type="button" data-key="del" class="key-del" title="刪除">刪除</button>
+        </div>
+      </div>
+      </div>
+
       <div class="main-row">
-        <!-- Left: work -->
+        <!-- Left: 題目 + 計算步驟／結果輸入 -->
         <main id="work-panel" class="work-panel" aria-label="橫式解題區">
           <div class="problem-header">
             <span class="sub-label" id="problem-sublabel">—</span>
             <div class="problem-expr" id="problem-expr"></div>
+          </div>
+          <div id="improper-reminder" class="improper-reminder" role="note">
+            提示：可以用<strong>假分數</strong>作答案，唔使轉成帶分數。
           </div>
 
           <div id="complete-banner" class="complete-banner">
@@ -80,7 +101,7 @@
           <div id="steps-list" class="steps-list"></div>
         </main>
 
-        <!-- Right: hints -->
+        <!-- Right: 提示 + 通分過程（短除法等） -->
         <aside id="hint-panel" class="hint-panel" aria-label="步驟提示">
           <div class="hint-header">
             <span>而家呢一步點做</span>
@@ -93,6 +114,7 @@
               </div>
               <div id="hint-bubble" class="hint-bubble">提示會出現喺呢度。</div>
             </div>
+            <div id="hint-process" class="hint-process" style="display:none" aria-label="通分過程"></div>
             <div id="hint-extra" class="hint-extra"></div>
             <div id="cpa-bars" class="cpa-bars" style="display:none"></div>
             <div id="hint-steps-nav" class="hint-steps-nav"></div>

@@ -40,6 +40,15 @@
     return 'not-coprime';
   }
 
+  /** Each addend's fraction part must already be lowest terms (題目一開始唔可約). */
+  function addendAlreadySimplified(f) {
+    if (!f || !f.d) return false;
+    return M.isSimplified(f.n, f.d);
+  }
+  function addendsStartSimplified(q) {
+    return !!(q && q.addends && q.addends.length && q.addends.every(addendAlreadySimplified));
+  }
+
   // ---------- Level 1 staged generators (NO fractional carry ever) ----------
   /** Proper same-denom, sum < d, already simplest (Stage A). */
   function gen1ANoSimplify() {
@@ -47,6 +56,7 @@
       const d = M.pick([3, 4, 5, 6, 7, 8, 9, 10, 12]);
       const n1 = M.randInt(1, d - 2);
       const n2 = M.randInt(1, d - n1 - 1);
+      if (!M.isSimplified(n1, d) || !M.isSimplified(n2, d)) continue;
       const sum = n1 + n2;
       if (sum >= d) continue;
       if (M.gcd(sum, d) !== 1) continue;
@@ -79,6 +89,7 @@
       const d = M.pick([4, 6, 8, 9, 10, 12]);
       const n1 = M.randInt(1, d - 2);
       const n2 = M.randInt(1, d - n1 - 1);
+      if (!M.isSimplified(n1, d) || !M.isSimplified(n2, d)) continue;
       const sum = n1 + n2;
       if (sum >= d) continue;
       if (M.gcd(sum, d) === 1) continue;
@@ -98,7 +109,7 @@
       level: 1,
       sub: '1A',
       label: '同分母真分數（要约分）',
-      addends: [makeProper(2, 8), makeProper(2, 8)],
+      addends: [makeProper(1, 6), makeProper(1, 6)],
       sameDenom: true,
       needFracCarry: false,
       needSimplify: true,
@@ -115,6 +126,7 @@
       const w2 = M.randInt(1, 3);
       const n1 = M.randInt(1, d - 2);
       const n2 = M.randInt(1, d - n1 - 1);
+      if (!M.isSimplified(n1, d) || !M.isSimplified(n2, d)) continue;
       if (n1 + n2 >= d) continue;
       if (M.gcd(n1 + n2, d) !== 1) continue;
       return {
@@ -147,6 +159,7 @@
       const w = M.randInt(1, 3);
       const n1 = M.randInt(1, d - 2);
       const n2 = M.randInt(1, d - n1 - 1);
+      if (!M.isSimplified(n1, d) || !M.isSimplified(n2, d)) continue;
       if (n1 + n2 >= d) continue;
       if (M.gcd(n1 + n2, d) !== 1) continue;
       const mixedFirst = Math.random() < 0.5;
@@ -183,6 +196,7 @@
       const w2 = M.randInt(0, 2); // 0 => proper-like second
       const n1 = M.randInt(1, d - 2);
       const n2 = M.randInt(1, d - n1 - 1);
+      if (!M.isSimplified(n1, d) || !M.isSimplified(n2, d)) continue;
       if (n1 + n2 >= d) continue;
       if (M.gcd(n1 + n2, d) === 1) continue;
       const a = makeMixed(w1, n1, d);
@@ -203,7 +217,7 @@
       level: 1,
       sub: '1B',
       label: '同分母帶分數（要约分）',
-      addends: [makeMixed(1, 2, 8), makeMixed(1, 2, 8)],
+      addends: [makeMixed(1, 1, 6), makeMixed(1, 1, 6)],
       sameDenom: true,
       needFracCarry: false,
       needSimplify: true,
@@ -268,8 +282,12 @@
       if (preferRelation && rel !== preferRelation && attempt < 25) continue;
       const n1 = M.randInt(1, d1 - 1);
       const n2 = M.randInt(1, d2 - 1);
+      if (!M.isSimplified(n1, d1) || !M.isSimplified(n2, d2)) continue;
       const lcd = M.lcm(d1, d2);
       if (lcd > 36) continue; // keep manageable
+      const sumN = n1 * (lcd / d1) + n2 * (lcd / d2);
+      // 第一關：唔要约分
+      if (M.gcd(sumN, lcd) !== 1) continue;
       return {
         level: 2,
         sub: '2A',
@@ -278,7 +296,9 @@
         sameDenom: false,
         lcd,
         denomRelation: rel,
-        needFracCarry: n1 * (lcd / d1) + n2 * (lcd / d2) >= lcd,
+        needFracCarry: sumN >= lcd,
+        skipSimplifyStep: true,
+        l2Stage: 'A',
       };
     }
     // fallback
@@ -305,9 +325,15 @@
       if (lcd > 36) continue;
       const n1 = M.randInt(1, d1 - 1);
       const n2 = M.randInt(1, d2 - 1);
+      if (!M.isSimplified(n1, d1) || !M.isSimplified(n2, d2)) continue;
       if (fracPartsNeedCarry(makeProper(n1, d1), makeProper(n2, d2))) continue;
+      const eaN = n1 * (lcd / d1);
+      const ebN = n2 * (lcd / d2);
+      // 第二關：唔要约分
+      if (M.gcd(eaN + ebN, lcd) !== 1) continue;
       const w1 = M.randInt(1, 3);
       const w2 = M.randInt(1, 3);
+      // After expand to lcd, frac sum must stay < lcd (no carry), same as L1 mixed
       return {
         level: 2,
         sub: '2B',
@@ -317,6 +343,8 @@
         lcd,
         denomRelation: rel,
         needFracCarry: false,
+        skipSimplifyStep: true,
+        l2Stage: 'B',
       };
     }
     return {
@@ -328,36 +356,116 @@
       lcd: 12,
       denomRelation: 'not-coprime',
       needFracCarry: false,
+      skipSimplifyStep: true,
+      l2Stage: 'B',
     };
   }
 
-  // ---------- Level 3A: unlike proper (encourage sum ≥ 1) ----------
-  function gen3A() {
-    for (let attempt = 0; attempt < 50; attempt++) {
+  /** L2 Stage C: 約分關 — proper or mixed, no carry, NEEDS simplify after 通分 */
+  function gen2C() {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const wantMixed = Math.random() < 0.5;
       const d1 = M.pick(DENOM_POOL);
       const d2 = M.pick(DENOM_POOL.filter((x) => x !== d1));
       const lcd = M.lcm(d1, d2);
       if (lcd > 36) continue;
-      const n1 = M.randInt(Math.ceil(d1 / 2), d1 - 1);
-      const n2 = M.randInt(Math.ceil(d2 / 3), d2 - 1);
+      const n1 = M.randInt(1, d1 - 1);
+      const n2 = M.randInt(1, d2 - 1);
+      if (!M.isSimplified(n1, d1) || !M.isSimplified(n2, d2)) continue;
+      if (fracPartsNeedCarry(makeProper(n1, d1), makeProper(n2, d2))) continue;
       const sumN = n1 * (lcd / d1) + n2 * (lcd / d2);
-      if (sumN < lcd && attempt < 35) continue; // prefer improper
+      if (M.gcd(sumN, lcd) === 1) continue; // must need 約分
+      if (wantMixed) {
+        const w1 = M.randInt(1, 3);
+        const w2 = M.randInt(1, 3);
+        return {
+          level: 2,
+          sub: '2C',
+          label: '異分母帶分數（要约分）',
+          addends: [makeMixed(w1, n1, d1), makeMixed(w2, n2, d2)],
+          sameDenom: false,
+          lcd,
+          denomRelation: relationOfDenoms(d1, d2),
+          needFracCarry: false,
+          forceSimplifyCheck: true,
+          skipSimplifyStep: false,
+          l2Stage: 'C',
+        };
+      }
       return {
-        level: 3,
-        sub: '3A',
-        label: '異分母真分數（可化帶分數）',
+        level: 2,
+        sub: '2A', // proper shape but stage C
+        label: '異分母真分數（要约分）',
         addends: [makeProper(n1, d1), makeProper(n2, d2)],
         sameDenom: false,
         lcd,
         denomRelation: relationOfDenoms(d1, d2),
         needFracCarry: sumN >= lcd,
+        forceSimplifyCheck: true,
+        skipSimplifyStep: false,
+        l2Stage: 'C',
+      };
+    }
+    // fallback mixed needing simplify: 1/6+1/3 → 1/6+2/6=3/6
+    return {
+      level: 2,
+      sub: '2C',
+      label: '異分母帶分數（要约分）',
+      addends: [makeMixed(1, 1, 6), makeMixed(1, 1, 3)],
+      sameDenom: false,
+      lcd: 6,
+      denomRelation: 'multiple',
+      needFracCarry: false,
+      forceSimplifyCheck: true,
+      skipSimplifyStep: false,
+      l2Stage: 'C',
+    };
+  }
+
+  // ---------- Level 3A: ≥1 帶分數, 異分母, 通分後分數部分一定要進位 ----------
+  function gen3A() {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const d1 = M.pick(DENOM_POOL);
+      const d2 = M.pick(DENOM_POOL.filter((x) => x !== d1));
+      const lcd = M.lcm(d1, d2);
+      if (lcd > 36) continue;
+      const n1 = M.randInt(1, d1 - 1);
+      const n2 = M.randInt(1, d2 - 1);
+      if (!M.isSimplified(n1, d1) || !M.isSimplified(n2, d2)) continue;
+      // 通分後分數部分和 ≥ 1 → 一定要進位
+      if (!fracPartsNeedCarry(makeProper(n1, d1), makeProper(n2, d2))) continue;
+      // At least one mixed (帶分數)
+      const mode = M.pick(['MM', 'MP', 'PM']);
+      let w1 = 0;
+      let w2 = 0;
+      if (mode === 'MM') {
+        w1 = M.randInt(1, 3);
+        w2 = M.randInt(1, 3);
+      } else if (mode === 'MP') {
+        w1 = M.randInt(1, 3);
+        w2 = 0;
+      } else {
+        w1 = 0;
+        w2 = M.randInt(1, 3);
+      }
+      const a = w1 > 0 ? makeMixed(w1, n1, d1) : makeProper(n1, d1);
+      const b = w2 > 0 ? makeMixed(w2, n2, d2) : makeProper(n2, d2);
+      return {
+        level: 3,
+        sub: '3A',
+        label: '異分母帶分數（要進位）',
+        addends: [a, b],
+        sameDenom: false,
+        lcd,
+        denomRelation: relationOfDenoms(d1, d2),
+        needFracCarry: true,
       };
     }
     return {
       level: 3,
       sub: '3A',
-      label: '異分母真分數（可化帶分數）',
-      addends: [makeProper(3, 4), makeProper(5, 6)],
+      label: '異分母帶分數（要進位）',
+      addends: [makeMixed(1, 3, 4), makeProper(5, 6)],
       sameDenom: false,
       lcd: 12,
       denomRelation: 'not-coprime',
@@ -376,6 +484,7 @@
       if (lcd > 36) continue;
       const n1 = M.randInt(1, d1 - 1);
       const n2 = M.randInt(1, d2 - 1);
+      if (!M.isSimplified(n1, d1) || !M.isSimplified(n2, d2)) continue;
       if (!fracPartsNeedCarry(makeProper(n1, d1), makeProper(n2, d2))) continue;
       const w1 = M.randInt(1, 3);
       const w2 = M.randInt(1, 3);
@@ -420,7 +529,7 @@
       const typ = a.type || (w > 0 ? 'mixed' : 'proper');
       return typ + ':' + w + '/' + a.n + '/' + a.d;
     });
-    return [q.level, q.sub || '', q.l1Stage || '', parts.join('+')].join('|');
+    return [q.level, q.sub || '', q.l1Stage || '', q.l2Stage || '', parts.join('+')].join('|');
   }
 
   let lastFingerprint = null;
@@ -446,15 +555,21 @@
       q = assertNoL1Carry(q);
       q.l1Stage = q.l1Stage || stage;
     } else if (level === 2) {
+      // L2: A=真分數, B=帶分數, C=約分; unlock after streak (app uses 2)
+      const stage = opts.l2Stage || 'A';
       const rel = nextRelation();
       if (force === '2A') q = gen2A(rel);
       else if (force === '2B') q = gen2B(rel);
-      else q = Math.random() < 0.4 ? gen2A(rel) : gen2B(rel);
+      else if (force === '2C') q = gen2C();
+      else if (stage === 'C') q = gen2C();
+      else if (stage === 'B') q = gen2B(rel);
+      else q = gen2A(rel);
+      q.l2Stage = stage;
     } else {
       const rel = nextRelation();
       if (force === '3A') q = gen3A();
       else if (force === '3B') q = gen3B(rel);
-      else q = Math.random() < 0.35 ? gen3A() : gen3B(rel);
+      else q = Math.random() < 0.45 ? gen3A() : gen3B(rel); // both ≥1 帶分數
     }
     return q;
   }
@@ -462,7 +577,7 @@
   /**
    * Generate a question for level 1|2|3.
    * Never emits fractional carry on L1.
-   * opts.forceSub, opts.l1Stage, opts.stageBIndex, opts.avoidFingerprint
+   * opts.forceSub, opts.l1Stage, opts.l2Stage, opts.stageBIndex, opts.avoidFingerprint
    * Retries up to 20 times to avoid consecutive identical fingerprint.
    */
   function generate(level, opts) {
@@ -471,11 +586,31 @@
       opts.avoidFingerprint !== undefined ? opts.avoidFingerprint : lastFingerprint;
     let q = null;
     let fp = '';
-    for (let attempt = 0; attempt < 20; attempt++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
       q = generateOnce(level, opts);
+      if (!addendsStartSimplified(q)) continue; // 題目一開始唔應有可約分分數
+      // 級別 3：通分後分數部分一定要進位
+      if (level === 3 && !q.needFracCarry) continue;
       fp = fingerprint(q);
       if (!avoid || fp !== avoid) break;
     }
+    if (!addendsStartSimplified(q)) {
+      // last-resort known-good (already simplified addends)
+      if (level === 1) {
+        q = gen1ANoSimplify();
+        q.l1Stage = (opts && opts.l1Stage) || 'A';
+        q = assertNoL1Carry(q);
+      } else if (level === 2) {
+        const st = (opts && opts.l2Stage) || 'A';
+        if (st === 'C') q = gen2C();
+        else if (st === 'B') q = gen2B();
+        else q = gen2A();
+        q.l2Stage = st;
+      } else {
+        q = gen3B(); // L3 一定要進位
+      }
+    }
+    fp = fingerprint(q);
     lastFingerprint = fp;
     q.fingerprint = fp;
     q.id = 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -487,14 +622,19 @@
     lastFingerprint = null;
   }
 
-  /** Compute final simplified answer for a question */
+  /** Compute final simplified answer (prefer improper/proper fraction, not mixed). */
   function computeAnswer(q) {
     const [a, b] = q.addends;
     const ia = M.toImproper(a.w || 0, a.n, a.d);
     const ib = M.toImproper(b.w || 0, b.n, b.d);
     const lcd = M.lcm(ia.d, ib.d);
     const sumN = ia.n * (lcd / ia.d) + ib.n * (lcd / ib.d);
-    return M.toMixed(sumN, lcd);
+    const s = M.simplify(sumN, lcd);
+    if (s.n % s.d === 0) {
+      return { w: s.n / s.d, n: 0, d: 1 };
+    }
+    // Keep as (possibly improper) fraction — 唔強制化帶分數
+    return { w: 0, n: s.n, d: s.d };
   }
 
   global.FracQuestions = {
@@ -504,6 +644,7 @@
     computeAnswer,
     fracPartsNeedCarry,
     relationOfDenoms,
+    addendsStartSimplified,
     expand,
     L1_STAGE_STREAK_NEED,
     gen1ANoSimplify,

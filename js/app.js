@@ -23,11 +23,14 @@
     mascotState: 'wave', // wave | guide | think | thumbsup | celebrate
     streaks: { 1: 0, 2: 0, 3: 0 },
     l1Stage: 'A', // A | B | C
-    stageStreak: 0, // correct-in-a-row within current L1 stage
+    l2Stage: 'A', // A=真分數 | B=帶分數 | C=約分
+    stageStreak: 0, // correct-in-a-row within current L1/L2 stage
     stageBIndex: 0, // for alternating mixed types in Stage B
     lastQuestionFp: null, // avoid consecutive identical questions
     wrongCounts: {}, // `${stepIndex}:${fieldKey}` -> count
     pendingStageAdvance: null, // 'B' | 'C' | 'done' after celebration
+    hintGuideStage: 0, // 0要通分 1短除+乘數 2擴分
+    hintGuideDone: false,
   };
 
   const MASCOT_FILES = {
@@ -43,7 +46,13 @@
     B: { label: '第二關・帶分數', short: '第二關', next: 'C', nextLabel: '第三關・約分' },
     C: { label: '第三關・約分', short: '第三關', next: null, nextLabel: null },
   };
+  const L2_STAGE_META = {
+    A: { label: '第一關・異分母真分數', short: '第一關', next: 'B', nextLabel: '第二關・異分母帶分數' },
+    B: { label: '第二關・異分母帶分數', short: '第二關', next: 'C', nextLabel: '第三關・約分' },
+    C: { label: '第三關・約分', short: '第三關', next: null, nextLabel: null },
+  };
   const STAGE_STREAK_NEED = 3;
+  const L2_STAGE_STREAK_NEED = 2; // 級別二連對兩題（含提示流程）即可升級
   const MASCOT_EMOJI = {
     wave: '👋',
     guide: '📖',
@@ -233,6 +242,8 @@
     if (!el) return;
     if (state.level === 1) {
       el.textContent = `${L1_STAGE_META[state.l1Stage].short} ${state.stageStreak}/${STAGE_STREAK_NEED}`;
+    } else if (state.level === 2) {
+      el.textContent = `${L2_STAGE_META[state.l2Stage].short} ${state.stageStreak}/${L2_STAGE_STREAK_NEED}`;
     } else {
       el.textContent = `連續 ${state.streaks[state.level] || 0} 題`;
     }
@@ -241,6 +252,9 @@
       if (state.level === 1) {
         stageEl.style.display = '';
         stageEl.textContent = L1_STAGE_META[state.l1Stage].label;
+      } else if (state.level === 2) {
+        stageEl.style.display = '';
+        stageEl.textContent = L2_STAGE_META[state.l2Stage].label;
       } else {
         stageEl.style.display = 'none';
       }
@@ -258,11 +272,20 @@
     state.pendingStageAdvance = null;
   }
 
+  function resetL2ToStageA() {
+    state.l2Stage = 'A';
+    state.stageStreak = 0;
+    state.pendingStageAdvance = null;
+  }
+
   function setLevel(level, forceNew) {
     const prev = state.level;
     state.level = level;
     if (level === 1 && prev !== 1) {
       resetL1ToStageA();
+    }
+    if (level === 2 && prev !== 2) {
+      resetL2ToStageA();
     }
     $$('.level-switch button').forEach((btn) => {
       btn.classList.toggle('active', Number(btn.dataset.level) === level);
@@ -273,8 +296,8 @@
 
   function newQuestion() {
     // Skipping mid-question breaks the stage streak (weaker-student soft rule)
-    if (state.level === 1 && !state.complete && state.question) {
-      /* keep streak — only completed wrongs aren't possible; 新題 abandons */
+    if ((state.level === 1 || state.level === 2) && !state.complete && state.question) {
+      /* 新題 abandons current stage streak */
       state.stageStreak = 0;
     }
     const genOpts = {
@@ -283,6 +306,9 @@
     if (state.level === 1) {
       genOpts.l1Stage = state.l1Stage;
       genOpts.stageBIndex = state.stageBIndex;
+    }
+    if (state.level === 2) {
+      genOpts.l2Stage = state.l2Stage;
     }
     state.question = FracQuestions.generate(state.level, genOpts);
     state.lastQuestionFp = state.question.fingerprint || FracQuestions.fingerprint(state.question);
@@ -293,6 +319,7 @@
     state.currentStep = 0;
     state.complete = false;
     state.wrongCounts = {};
+    resetHintGuide();
     setMascot('guide');
     renderPractice();
     updateStreakUI();
@@ -303,6 +330,8 @@
     let sub = q.label;
     if (state.level === 1) {
       sub = L1_STAGE_META[state.l1Stage].label + ' · ' + q.label;
+    } else if (state.level === 2) {
+      sub = L2_STAGE_META[state.l2Stage].label + ' · ' + q.label;
     }
     $('#problem-sublabel').textContent = sub;
     $('#problem-expr').innerHTML = htmlProblemExpr(q);
@@ -342,7 +371,28 @@
       work.appendChild(buildStepShow(step));
 
       if (status === 'current' || status === 'done' || status === 'review') {
-        const inputsWrap = buildStepInputs(step, i, status);
+        const locked = status === 'current' && isLeftLockedByHint(step);
+        // Build as 'current' so blanks stay EMPTY (readonly would pre-fill expected answers)
+        const inputsWrap = buildStepInputs(step, i, locked ? 'current' : status);
+        if (locked) {
+          inputsWrap.classList.add('left-locked');
+          $$('input', inputsWrap).forEach((inp) => {
+            inp.readOnly = true;
+            inp.disabled = true;
+            inp.value = '';
+            inp.classList.remove('correct', 'wrong');
+            inp.placeholder = '□';
+          });
+          const lockMsg = document.createElement('div');
+          lockMsg.className = 'left-lock-msg';
+          const pType = step.process && step.process.type;
+          if (pType === 'carry-guide') {
+            lockMsg.textContent = '請先喺右邊學完點樣將假分數變做帶分數，完成後就可以喺左邊作答。';
+          } else {
+            lockMsg.textContent = '請先喺右邊完成通分過程（要通分 → 短除法 → 擴分），完成後就可以喺左邊作答。';
+          }
+          work.appendChild(lockMsg);
+        }
         work.appendChild(inputsWrap);
       }
 
@@ -354,8 +404,9 @@
         fb.id = 'step-feedback';
         block.appendChild(fb);
 
+        const locked = isLeftLockedByHint(step);
         const showCheck =
-          !step.isSimplifyChoice || step._showAnswer === true;
+          !locked && (!step.isSimplifyChoice || step._showAnswer === true);
         if (showCheck) {
           const checkRow = document.createElement('div');
           checkRow.style.marginTop = '0.5rem';
@@ -390,6 +441,9 @@
     if (s.type === 'confirm-same' || s.type === 'sum-frac' || s.type === 'need-common' ||
         s.type === 'add-wholes' || s.type === 'add-frac-parts' || s.type === 'need-common-parts' ||
         s.type === 'add-mixed-together') {
+      wrap.innerHTML = `${htmlAddend(s.a)}<span class="op">+</span>${htmlAddend(s.b)}`;
+    } else if (s.type === 'tongfen-result') {
+      // Keep mixed 整數 visible in step1 通分母
       wrap.innerHTML = `${htmlAddend(s.a)}<span class="op">+</span>${htmlAddend(s.b)}`;
     } else if (s.type === 'short-div') {
       wrap.innerHTML = `<span>分母 ${s.a} 同 ${s.b}</span>`;
@@ -426,13 +480,47 @@
 
     const readonly = status !== 'current';
 
-    if (step.id === 'short-div') {
-      wrap.appendChild(buildShortDivUI(step, readonly));
+    // Group common patterns
+    const keys = step.fields.map((f) => f.key);
+
+    // 通分母：= [整數]□/□ + [整數]□/□（帶分數保留整數）
+    if (step.id === 'tongfen' || (step.show && step.show.type === 'tongfen-result')) {
+      wrap.appendChild(eqEquals());
+      const sh = step.show || {};
+      const keepW = !!(step.keepWholes || (sh && sh.keepWholes));
+      const wA = (sh.a && (sh.a.w || 0)) || 0;
+      const wB = (sh.b && (sh.b.w || 0)) || 0;
+      if (keepW && wA > 0) {
+        const w = document.createElement('span');
+        w.className = 'whole term-whole';
+        w.style.fontSize = '1.35rem';
+        w.style.fontWeight = '700';
+        w.style.marginRight = '0.2rem';
+        w.textContent = String(wA);
+        wrap.appendChild(w);
+      }
+      wrap.appendChild(buildFracInput(step, 'exp_a_n', 'exp_a_d', readonly));
+      const plus = document.createElement('span');
+      plus.className = 'op';
+      plus.textContent = '+';
+      wrap.appendChild(plus);
+      if (keepW && wB > 0) {
+        const w = document.createElement('span');
+        w.className = 'whole term-whole';
+        w.style.fontSize = '1.35rem';
+        w.style.fontWeight = '700';
+        w.style.marginRight = '0.2rem';
+        w.textContent = String(wB);
+        wrap.appendChild(w);
+      }
+      wrap.appendChild(buildFracInput(step, 'exp_b_n', 'exp_b_d', readonly));
       return wrap;
     }
 
-    // Group common patterns
-    const keys = step.fields.map((f) => f.key);
+    if (step.id === 'short-div') {
+      wrap.appendChild(buildCommonDenomResultUI(step, readonly));
+      return wrap;
+    }
 
     // Stage C: 有／沒有約分（大掣）
     if (step.isSimplifyChoice) {
@@ -492,11 +580,11 @@
       return wrap;
     }
 
-    // d1, d2
+    // d1, d2 — 通分母結果（通分後兩個分母）
     if (keys.includes('d1') && keys.includes('d2')) {
-      wrap.appendChild(buildLabeledInput(step, 'd1', '分母①', readonly));
+      wrap.appendChild(buildLabeledInput(step, 'd1', '通分母①', readonly));
       wrap.appendChild(document.createTextNode('　同　'));
-      wrap.appendChild(buildLabeledInput(step, 'd2', '分母②', readonly));
+      wrap.appendChild(buildLabeledInput(step, 'd2', '通分母②', readonly));
       return wrap;
     }
 
@@ -594,23 +682,66 @@
     return mix;
   }
 
-  function buildShortDivUI(step, readonly) {
-    const sd = step.show.sd;
+  /** Left panel: only enter 公倍數／通分母結果 */
+  function buildCommonDenomResultUI(step, readonly) {
+    const box = document.createElement('div');
+    box.className = 'common-denom-result';
+    box.style.display = 'inline-flex';
+    box.style.alignItems = 'center';
+    box.style.gap = '0.5rem';
+    box.style.flexWrap = 'wrap';
+    const s = step.show || {};
+    const ctx = document.createElement('span');
+    ctx.textContent = '分母 ' + (s.a != null ? s.a : '') + ' 同 ' + (s.b != null ? s.b : '') + ' →';
+    box.appendChild(ctx);
+    const lcmRow = document.createElement('div');
+    lcmRow.className = 'sd-lcm-row';
+    lcmRow.style.margin = '0';
+    lcmRow.innerHTML = '<span>公倍數 =</span>';
+    lcmRow.appendChild(makeNumInput(step, 'sd_lcm', readonly));
+    box.appendChild(lcmRow);
+    return box;
+  }
+
+  /**
+   * Right hint panel: 通分過程 short-div grid (divisors + rows).
+   * includeLcm: whether to also show 公倍數 input (usually false — result is on left).
+   * graded: if false, inputs are practice-only (no data-field grading keys).
+   */
+  function buildShortDivProcessUI(step, readonly, opts) {
+    opts = opts || {};
+    const includeLcm = !!opts.includeLcm;
+    const graded = opts.graded !== false;
+    const proc = (step.process && step.process.sd) ? step.process : step.show;
+    const sd = proc && proc.sd;
     const box = document.createElement('div');
     box.className = 'short-div-ui';
+    if (!sd) {
+      box.textContent = '兩個分母互質時，公倍數 = 兩數相乘。';
+      return box;
+    }
 
-    // Row 0: original numbers (static) with first divisor slot
     const nDiv = sd.divisors.length;
+    // Use a step-like object so makeNumInput can find field metadata
+    const fieldStep = step;
 
     for (let i = 0; i <= nDiv; i++) {
       const row = document.createElement('div');
-      row.className = 'sd-row';
+      row.className = 'sd-row' + (i < nDiv ? ' sd-has-div' : ' sd-remain');
 
       if (i < nDiv) {
         const slot = document.createElement('div');
         slot.className = 'sd-div-slot';
-        const inp = makeNumInput(step, `sd_div_${i}`, readonly);
-        slot.appendChild(inp);
+        if (graded && step.fields.some((f) => f.key === 'sd_div_' + i)) {
+          slot.appendChild(makeNumInput(fieldStep, 'sd_div_' + i, readonly));
+        } else {
+          const inp = makeNumInput(fieldStep, 'sd_div_' + i, readonly);
+          if (!graded) {
+            delete inp.dataset.field;
+            inp.dataset.practice = 'sd_div_' + i;
+          }
+          slot.appendChild(inp);
+        }
         row.appendChild(slot);
       } else {
         const spacer = document.createElement('div');
@@ -630,19 +761,34 @@
         nums.appendChild(L);
         nums.appendChild(R);
       } else {
-        nums.appendChild(makeNumInput(step, `sd_row_${i}_L`, readonly));
-        nums.appendChild(makeNumInput(step, `sd_row_${i}_R`, readonly));
+        const kL = 'sd_row_' + i + '_L';
+        const kR = 'sd_row_' + i + '_R';
+        const iL = makeNumInput(fieldStep, kL, readonly);
+        const iR = makeNumInput(fieldStep, kR, readonly);
+        if (!graded) {
+          delete iL.dataset.field; iL.dataset.practice = kL;
+          delete iR.dataset.field; iR.dataset.practice = kR;
+        }
+        nums.appendChild(iL);
+        nums.appendChild(iR);
       }
       row.appendChild(nums);
       box.appendChild(row);
     }
 
-    const lcmRow = document.createElement('div');
-    lcmRow.className = 'sd-lcm-row';
-    lcmRow.innerHTML = '<span>公倍數 =</span>';
-    lcmRow.appendChild(makeNumInput(step, 'sd_lcm', readonly));
-    box.appendChild(lcmRow);
+    if (includeLcm) {
+      const lcmRow = document.createElement('div');
+      lcmRow.className = 'sd-lcm-row';
+      lcmRow.innerHTML = '<span>公倍數 =</span>';
+      lcmRow.appendChild(makeNumInput(fieldStep, 'sd_lcm', readonly));
+      box.appendChild(lcmRow);
+    }
+    return box;
+  }
 
+  function buildShortDivUI(step, readonly) {
+    // legacy full UI (unused for left); keep for safety
+    const box = buildShortDivProcessUI(step, readonly, { includeLcm: true, graded: true });
     return box;
   }
 
@@ -797,18 +943,29 @@
       completeProblem();
     } else {
       state.currentStep = i + 1;
+      const next = state.steps[state.currentStep];
+      if (next && next.locksLeftUntilHintDone) resetHintGuide();
+      else { state.hintGuideDone = true; }
       setMascot('guide');
       renderPractice();
     }
   }
 
-    function collectValues(stepIndex) {
-    const wrap = $(`.step-inputs[data-step-index="${stepIndex}"]`);
+  function collectValues(stepIndex) {
     const values = {};
-    if (!wrap) return values;
-    $$('input[data-field]', wrap).forEach((inp) => {
-      values[inp.dataset.field] = inp.value.trim();
-    });
+    const wrap = $(`.step-inputs[data-step-index="${stepIndex}"]`);
+    if (wrap) {
+      $$('input[data-field]', wrap).forEach((inp) => {
+        values[inp.dataset.field] = inp.value.trim();
+      });
+    }
+    // 通分過程 inputs live in right hint panel
+    const proc = $('#hint-process');
+    if (proc) {
+      $$('input[data-field]', proc).forEach((inp) => {
+        values[inp.dataset.field] = inp.value.trim();
+      });
+    }
     return values;
   }
 
@@ -865,9 +1022,11 @@
 
     const result = FracSteps.gradeStep(gradeStep, values);
     const wrap = $(`.step-inputs[data-step-index="${i}"]`);
+    const proc = $('#hint-process');
 
     Object.keys(result.results).forEach((key) => {
-      const inp = wrap && wrap.querySelector(`input[data-field="${key}"]`);
+      let inp = wrap && wrap.querySelector(`input[data-field="${key}"]`);
+      if (!inp && proc) inp = proc.querySelector(`input[data-field="${key}"]`);
       if (!inp) return;
       const r = result.results[key];
       inp.classList.remove('wrong', 'correct');
@@ -946,6 +1105,15 @@
     newQuestion();
   }
 
+  function advanceToL2Stage(next) {
+    state.l2Stage = next;
+    state.stageStreak = 0;
+    state.pendingStageAdvance = null;
+    hideStageOverlay();
+    updateStreakUI();
+    newQuestion();
+  }
+
   function completeProblem() {
     state.complete = true;
     state.streaks[state.level] = (state.streaks[state.level] || 0) + 1;
@@ -973,7 +1141,7 @@
       const need = STAGE_STREAK_NEED;
       const meta = L1_STAGE_META[state.l1Stage];
       $('#complete-msg').textContent =
-        `做得好！呢一關已連續答對 ${state.stageStreak}/${need} 題。`;
+        `做得好！呢一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案。`;
 
       renderSteps();
       renderHints();
@@ -1030,21 +1198,816 @@
         });
         return;
       }
+    } else if (state.level === 2) {
+      state.stageStreak += 1;
+      updateStreakUI();
+      const need = L2_STAGE_STREAK_NEED; // 連對兩題（含提示）升級
+      const meta = L2_STAGE_META[state.l2Stage];
+      $('#complete-msg').textContent =
+        `做得好！呢一關已連續答對 ${state.stageStreak}/${need} 題。可以用假分數作答案，唔使轉帶分數。`;
+
+      renderSteps();
+      renderHints();
+
+      if (state.stageStreak >= need) {
+        if (state.l2Stage === 'A' || state.l2Stage === 'B') {
+          const next = meta.next;
+          state.pendingStageAdvance = 'L2' + next;
+          if (againBtn) againBtn.style.display = 'none';
+          const nextLabel = next === 'B' ? '繼續下一關・帶分數' : '繼續下一關・約分';
+          showStageOverlay({
+            title: '做得好！',
+            msg: `你已經連續答對 ${need} 題。難度會提升啦！下一關：${L2_STAGE_META[next].label}`,
+            mascot: 'celebrate',
+            buttons: [
+              {
+                label: nextLabel,
+                primary: true,
+                onClick: () => advanceToL2Stage(next),
+              },
+            ],
+          });
+          return;
+        }
+        // Stage C cleared
+        state.pendingStageAdvance = 'L2done';
+        $('#complete-msg').textContent =
+          '做得好！級別 2 三關都過咗。可以升級去級別 3，或者重温。可以用假分數作答案。';
+        showStageOverlay({
+          title: '做得好！',
+          msg: '級別 2 真分數、帶分數同約分都練過啦。可以升級去級別 3，或者由第一關重温。',
+          mascot: 'thumbsup',
+          buttons: [
+            {
+              label: '升級去級別 3',
+              primary: true,
+              onClick: () => {
+                hideStageOverlay();
+                setLevel(3, true);
+              },
+            },
+            {
+              label: '繼續練習約分關',
+              primary: false,
+              onClick: () => {
+                hideStageOverlay();
+                state.stageStreak = 0;
+                updateStreakUI();
+                newQuestion();
+              },
+            },
+            {
+              label: '重温第一關',
+              primary: false,
+              onClick: () => {
+                hideStageOverlay();
+                resetL2ToStageA();
+                updateStreakUI();
+                newQuestion();
+              },
+            },
+          ],
+        });
+        return;
+      }
     } else {
       updateStreakUI();
       $('#complete-msg').textContent =
-        `好叻呀！本級已連續答對 ${state.streaks[state.level]} 題。`;
+        `好叻呀！本級已連續答對 ${state.streaks[state.level]} 題。可以用假分數作答案，唔使轉帶分數。`;
     }
 
     renderSteps();
     renderHints();
   }
 
+  // ---------- Hint-guide lock (通分過程) ----------
+  function resetHintGuide() {
+    state.hintGuideStage = 0;
+    state.hintGuideDone = false;
+  }
+
+  function isLeftLockedByHint(step) {
+    if (!step || !step.locksLeftUntilHintDone) return false;
+    if (!state.hintOpen) return false; // hints OFF → left free
+    return !state.hintGuideDone;
+  }
+
+  function ensureHintGuideForStep(step) {
+    if (!step || !step.process) return;
+    const t = step.process.type;
+    if (t !== 'tongfen-guide' && t !== 'carry-guide') return;
+    // Keep progress if already working this step; reset only when needed
+    if (state.hintGuideDone) return;
+  }
+
   // ---------- Hints panel ----------
   function renderHints() {
     renderHintText();
+    renderHintProcess();
     renderHintNav();
     renderCPA();
+  }
+
+  /** Right panel: 通分／進位引導 */
+  function renderHintProcess() {
+    const box = $('#hint-process');
+    if (!box) return;
+    box.innerHTML = '';
+    const step = state.steps[state.currentStep];
+    if (!step || state.complete || !step.process) {
+      box.style.display = 'none';
+      return;
+    }
+    if (step.process.type === 'carry-guide') {
+      box.style.display = 'block';
+      ensureHintGuideForStep(step);
+      renderCarryGuide(box, step);
+      return;
+    }
+    if (step.process.type !== 'tongfen-guide') {
+      box.style.display = 'none';
+      return;
+    }
+    box.style.display = 'block';
+    ensureHintGuideForStep(step);
+    const P = step.process;
+    const stage = state.hintGuideDone ? 3 : state.hintGuideStage;
+
+    const title = document.createElement('div');
+    title.className = 'hint-process-title';
+    title.textContent = '通分過程';
+    box.appendChild(title);
+
+    // Stage pills
+    const pills = document.createElement('div');
+    pills.className = 'hint-guide-pills';
+    const names = ['要通分', '短除法搵公倍數', '兩個分數分別擴分'];
+    names.forEach((name, i) => {
+      const pill = document.createElement('div');
+      let cls = 'hint-guide-pill';
+      if (state.hintGuideDone || i < state.hintGuideStage) cls += ' done';
+      else if (i === state.hintGuideStage) cls += ' current';
+      pill.className = cls;
+      pill.textContent = (i + 1) + '. ' + name;
+      pills.appendChild(pill);
+    });
+    box.appendChild(pills);
+
+    const body = document.createElement('div');
+    body.className = 'hint-guide-body';
+    box.appendChild(body);
+
+    if (state.hintGuideDone) {
+      // Keep step-3 分別擴分 results visible (read-only) as reference for left answering
+      const ok = document.createElement('p');
+      ok.className = 'hint-guide-ok';
+      ok.textContent = '✓ 通分過程完成！下面擴分結果可以對照左邊作答，再撳「核對本步」。';
+      body.appendChild(ok);
+      const h = document.createElement('h4');
+      h.textContent = '③ 兩個分數分別擴分（參考）';
+      body.appendChild(h);
+      body.appendChild(buildExpandGuideRowReadonly(P.a, P.multA, P.ea.n, P.lcd));
+      body.appendChild(buildExpandGuideRowReadonly(P.b, P.multB, P.eb.n, P.lcd));
+      return;
+    }
+
+    if (state.hintGuideStage <= 0) {
+      renderGuideStageDenoms(body, step, P);
+    } else if (state.hintGuideStage === 1) {
+      renderGuideStageShortDiv(body, step, P);
+    } else {
+      // stage >= 2 → 分別擴分 (must complete before hintGuideDone)
+      renderGuideStageExpand(body, step, P);
+    }
+  }
+
+  function renderGuideStageDenoms(body, step, P) {
+    const h = document.createElement('h4');
+    h.textContent = '① 要通分';
+    body.appendChild(h);
+    const p = document.createElement('p');
+    p.innerHTML = colorizeMathTerms('兩個分母唔同，份嘅大小唔一樣，唔可以直接加分子。請填出兩個分母：');
+    body.appendChild(p);
+    const list = document.createElement('div');
+    list.className = 'hint-denom-list';
+
+    function denomRow(label, key) {
+      const row = document.createElement('div');
+      row.className = 'hint-denom-item';
+      row.appendChild(document.createTextNode(label + ' = '));
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'numeric';
+      inp.pattern = '[0-9]*';
+      inp.dataset.guide = key;
+      inp.setAttribute('aria-label', label);
+      inp.placeholder = '□';
+      inp.addEventListener('input', () => {
+        inp.value = inp.value.replace(/[^\d]/g, '');
+        inp.classList.remove('wrong', 'correct');
+      });
+      row.appendChild(inp);
+      return row;
+    }
+    list.appendChild(denomRow('分母①', 'd1'));
+    list.appendChild(denomRow('分母②', 'd2'));
+    body.appendChild(list);
+
+    const fb = document.createElement('div');
+    fb.className = 'step-feedback';
+    fb.id = 'hint-guide-fb';
+    body.appendChild(fb);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = '核對分母';
+    btn.addEventListener('click', () => {
+      const i1 = body.querySelector('[data-guide="d1"]');
+      const i2 = body.querySelector('[data-guide="d2"]');
+      const v1 = Number(i1 && i1.value.trim());
+      const v2 = Number(i2 && i2.value.trim());
+      // Accept either order
+      const ok =
+        (v1 === P.d1 && v2 === P.d2) || (v1 === P.d2 && v2 === P.d1);
+      if (i1) {
+        i1.classList.toggle('correct', ok && Number.isFinite(v1));
+        i1.classList.toggle('wrong', !ok);
+      }
+      if (i2) {
+        i2.classList.toggle('correct', ok && Number.isFinite(v2));
+        i2.classList.toggle('wrong', !ok);
+      }
+      if (ok) {
+        fb.className = 'step-feedback ok';
+        fb.textContent = '✓ 分母啱！';
+        state.hintGuideStage = 1;
+        setTimeout(() => renderHints(), 350);
+      } else {
+        fb.className = 'step-feedback err';
+        fb.textContent = '再睇吓題目兩個分母，填入格仔。';
+      }
+    });
+    body.appendChild(btn);
+  }
+
+  function lcmFactorList(sd) {
+    // divisors on the left × bottom remainders
+    const factors = (sd.divisors || []).slice();
+    const rem = sd.remainders || (sd.rows && sd.rows.length ? sd.rows[sd.rows.length - 1] : []);
+    if (rem && rem.length) {
+      rem.forEach((n) => factors.push(n));
+    }
+    return factors;
+  }
+
+  function renderGuideStageShortDiv(body, step, P) {
+    const h = document.createElement('h4');
+    h.textContent = '② 短除法搵公倍數';
+    body.appendChild(h);
+    const sd = P.sd;
+    // Reuse process UI; grade short-div fields against a synthetic step
+    const synFields = (typeof FracSteps !== 'undefined' && sd)
+      ? null
+      : null;
+    // Build fields locally for grading this stage
+    const fields = [];
+    if (sd) {
+      (sd.divisors || []).forEach((div, i) => {
+        fields.push({ key: 'sd_div_' + i, expected: div, label: '除數' + (i + 1) });
+      });
+      for (let i = 1; i < (sd.rows || []).length; i++) {
+        fields.push({ key: 'sd_row_' + i + '_L', expected: sd.rows[i][0] });
+        fields.push({ key: 'sd_row_' + i + '_R', expected: sd.rows[i][1] });
+      }
+    }
+    const synStep = { fields: fields, show: { sd: sd }, process: { sd: sd } };
+    body.appendChild(buildShortDivProcessUI(synStep, false, { includeLcm: false, graded: true }));
+
+    // Multiply guide: user fills factor blanks AND product (nothing auto-filled)
+    const expectedFactors = lcmFactorList(sd || { divisors: [], remainders: [P.d1, P.d2], rows: [[P.d1, P.d2]] });
+    const nFac = Math.max(expectedFactors.length, 2);
+    const mul = document.createElement('div');
+    mul.className = 'hint-lcm-mul';
+    const mulLabel = document.createElement('div');
+    mulLabel.className = 'hint-lcm-expr';
+    mulLabel.textContent = '相乘：';
+    mul.appendChild(mulLabel);
+    const factorInputs = [];
+    for (let fi = 0; fi < nFac; fi++) {
+      if (fi > 0) {
+        const times = document.createElement('span');
+        times.textContent = ' × ';
+        mul.appendChild(times);
+      }
+      const fin = document.createElement('input');
+      fin.type = 'text';
+      fin.inputMode = 'numeric';
+      fin.pattern = '[0-9]*';
+      fin.dataset.guide = 'lcm_fac_' + fi;
+      fin.placeholder = '□';
+      fin.setAttribute('aria-label', '乘數 ' + (fi + 1));
+      fin.addEventListener('input', () => {
+        fin.value = fin.value.replace(/[^\d]/g, '');
+        fin.classList.remove('wrong', 'correct');
+      });
+      factorInputs.push(fin);
+      mul.appendChild(fin);
+    }
+    const eq = document.createElement('span');
+    eq.textContent = ' = ';
+    mul.appendChild(eq);
+    const lcmInp = document.createElement('input');
+    lcmInp.type = 'text';
+    lcmInp.inputMode = 'numeric';
+    lcmInp.pattern = '[0-9]*';
+    lcmInp.dataset.guideField = 'lcm';
+    lcmInp.placeholder = '□';
+    lcmInp.setAttribute('aria-label', '公倍數');
+    lcmInp.className = 'role-den';
+    lcmInp.addEventListener('input', () => {
+      lcmInp.value = lcmInp.value.replace(/[^\d]/g, '');
+      lcmInp.classList.remove('wrong', 'correct');
+    });
+    mul.appendChild(lcmInp);
+    body.appendChild(mul);
+    const tip = document.createElement('p');
+    tip.className = 'hint-guide-tip';
+    tip.textContent = '將短除左邊每個除數，同埋最底兩個數，全部填入相乘，得出最小公倍數。';
+    body.appendChild(tip);
+
+    const fb = document.createElement('div');
+    fb.className = 'step-feedback';
+    fb.id = 'hint-guide-fb';
+    body.appendChild(fb);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = '核對短除／公倍數';
+    btn.addEventListener('click', () => {
+      const values = {};
+      $$('#hint-process input[data-field]').forEach((inp) => {
+        values[inp.dataset.field] = inp.value.trim();
+      });
+      let allOk = true;
+      // Require short-div grid when there are divisor rows
+      fields.forEach((f) => {
+        const inp = document.querySelector('#hint-process input[data-field="' + f.key + '"]');
+        const num = Number(values[f.key]);
+        const ok = values[f.key] !== '' && Number.isFinite(num) && num === f.expected;
+        if (inp) {
+          inp.classList.toggle('correct', ok);
+          inp.classList.toggle('wrong', !ok);
+        }
+        if (!ok) allOk = false;
+      });
+
+      // Factor blanks: must multiply to lcd (order-insensitive match to expected factors preferred)
+      const gotFacs = factorInputs.map((inp) => Number(inp.value.trim()));
+      const facsFilled = factorInputs.every((inp) => inp.value.trim() !== '');
+      let facProd = 1;
+      gotFacs.forEach((n) => { facProd *= n; });
+      const sortedGot = gotFacs.slice().sort((a, b) => a - b);
+      const sortedExp = expectedFactors.slice().sort((a, b) => a - b);
+      const facsMatch =
+        facsFilled &&
+        sortedGot.length === sortedExp.length &&
+        sortedGot.every((n, i) => n === sortedExp[i]);
+      const facProdOk = facsFilled && facProd === P.lcd;
+      factorInputs.forEach((inp) => {
+        inp.classList.toggle('correct', facsMatch || facProdOk);
+        inp.classList.toggle('wrong', !(facsMatch || facProdOk));
+      });
+      if (!(facsMatch || facProdOk)) allOk = false;
+
+      const gotLcm = Number(lcmInp.value.trim());
+      const lcmOk = lcmInp.value.trim() !== '' && gotLcm === P.lcd;
+      lcmInp.classList.toggle('correct', lcmOk);
+      lcmInp.classList.toggle('wrong', !lcmOk);
+      if (!lcmOk) allOk = false;
+
+      // Never skip to done here — only advance to stage 2 (擴分)
+      const fbEl = $('#hint-guide-fb');
+      if (allOk) {
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 短除同公倍數啱！下一步擴分。'; }
+        state.hintGuideStage = 2; // MUST go to 分別擴分 — do not set hintGuideDone
+        state.hintGuideDone = false;
+        setTimeout(() => renderHints(), 350);
+      } else {
+        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再試下短除格仔、相乘同公倍數。'; }
+      }
+    });
+    body.appendChild(btn);
+  }
+
+  function renderGuideStageExpand(body, step, P) {
+    const h = document.createElement('h4');
+    h.textContent = '③ 兩個分數分別擴分';
+    body.appendChild(h);
+    const tip = document.createElement('p');
+    tip.className = 'hint-guide-tip';
+    tip.innerHTML = colorizeMathTerms('每個分數分子同埋分母都要乘同一個倍數，令分母變成 ' + P.lcd + '。');
+    body.appendChild(tip);
+
+    body.appendChild(buildExpandGuideRow(P.a, P.multA, P.ea.n, P.lcd, 'a'));
+    body.appendChild(buildExpandGuideRow(P.b, P.multB, P.eb.n, P.lcd, 'b'));
+
+    const fb = document.createElement('div');
+    fb.className = 'step-feedback';
+    fb.id = 'hint-guide-fb';
+    body.appendChild(fb);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = '核對擴分';
+    btn.addEventListener('click', () => {
+      const checks = [
+        { sel: '[data-guide="a_mult_n"]', exp: P.multA },
+        { sel: '[data-guide="a_mult_d"]', exp: P.multA },
+        { sel: '[data-guide="a_res_n"]', exp: P.ea.n },
+        { sel: '[data-guide="b_mult_n"]', exp: P.multB },
+        { sel: '[data-guide="b_mult_d"]', exp: P.multB },
+        { sel: '[data-guide="b_res_n"]', exp: P.eb.n },
+      ];
+      let allOk = true;
+      checks.forEach((c) => {
+        const inp = body.querySelector(c.sel);
+        if (!inp) { allOk = false; return; }
+        const num = Number(inp.value.trim());
+        const ok = num === c.exp;
+        inp.classList.toggle('correct', ok);
+        inp.classList.toggle('wrong', !ok);
+        if (!ok) allOk = false;
+      });
+      const fbEl = $('#hint-guide-fb');
+      if (allOk) {
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 擴分啱！'; }
+        state.hintGuideDone = true;
+        setMascot('thumbsup');
+        setTimeout(() => {
+          renderSteps();
+          renderHints();
+        }, 350);
+      } else {
+        if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再睇吓倍數同擴分後分子。'; }
+      }
+    });
+    body.appendChild(btn);
+  }
+
+  function buildExpandGuideRow(addend, mult, resN, lcd, side) {
+    const row = document.createElement('div');
+    row.className = 'hint-expand-row';
+    // e.g. 1/2 = (1×□)/(2×□) = □/10  — all with stacked fraction bars
+    const n = addend.n;
+    const d = addend.d;
+
+    const left = document.createElement('span');
+    left.className = 'hint-expand-left';
+    left.innerHTML = htmlFrac(n, d);
+    row.appendChild(left);
+
+    const eq1 = document.createElement('span');
+    eq1.className = 'op';
+    eq1.textContent = '=';
+    row.appendChild(eq1);
+
+    // Middle: stacked fraction  (n × □) / (d × □)
+    const mid = document.createElement('span');
+    mid.className = 'frac hint-expand-mid-frac';
+    const midNum = document.createElement('span');
+    midNum.className = 'num hint-expand-mul';
+    midNum.appendChild(document.createTextNode(n + ' × '));
+    midNum.appendChild(guideBlank('' + side + '_mult_n'));
+    mid.appendChild(midNum);
+    const midBar = document.createElement('span');
+    midBar.className = 'bar';
+    mid.appendChild(midBar);
+    const midDen = document.createElement('span');
+    midDen.className = 'den hint-expand-mul';
+    midDen.appendChild(document.createTextNode(d + ' × '));
+    midDen.appendChild(guideBlank('' + side + '_mult_d'));
+    mid.appendChild(midDen);
+    row.appendChild(mid);
+
+    const eq2 = document.createElement('span');
+    eq2.className = 'op';
+    eq2.textContent = '=';
+    row.appendChild(eq2);
+
+    // Result: stacked □ / lcd
+    const right = document.createElement('span');
+    right.className = 'frac hint-expand-frac';
+    const rn = document.createElement('span');
+    rn.className = 'num';
+    rn.appendChild(guideBlank('' + side + '_res_n'));
+    right.appendChild(rn);
+    const rbar = document.createElement('span');
+    rbar.className = 'bar';
+    right.appendChild(rbar);
+    const rd = document.createElement('span');
+    rd.className = 'den hint-expand-den';
+    rd.textContent = String(lcd);
+    right.appendChild(rd);
+    row.appendChild(right);
+
+    return row;
+  }
+
+  /** Read-only filled expansion row for post-guide reference */
+  function buildExpandGuideRowReadonly(addend, mult, resN, lcd) {
+    const row = document.createElement('div');
+    row.className = 'hint-expand-row hint-expand-readonly';
+    const n = addend.n;
+    const d = addend.d;
+
+    const left = document.createElement('span');
+    left.className = 'hint-expand-left';
+    left.innerHTML = htmlFrac(n, d);
+    row.appendChild(left);
+
+    const eq1 = document.createElement('span');
+    eq1.className = 'op';
+    eq1.textContent = '=';
+    row.appendChild(eq1);
+
+    const mid = document.createElement('span');
+    mid.className = 'frac hint-expand-mid-frac';
+    const midNum = document.createElement('span');
+    midNum.className = 'num hint-expand-mul';
+    midNum.innerHTML = n + ' × <strong class="hint-filled">' + mult + '</strong>';
+    mid.appendChild(midNum);
+    const midBar = document.createElement('span');
+    midBar.className = 'bar';
+    mid.appendChild(midBar);
+    const midDen = document.createElement('span');
+    midDen.className = 'den hint-expand-mul';
+    midDen.innerHTML = d + ' × <strong class="hint-filled">' + mult + '</strong>';
+    mid.appendChild(midDen);
+    row.appendChild(mid);
+
+    const eq2 = document.createElement('span');
+    eq2.className = 'op';
+    eq2.textContent = '=';
+    row.appendChild(eq2);
+
+    const right = document.createElement('span');
+    right.className = 'frac hint-expand-frac';
+    const rn = document.createElement('span');
+    rn.className = 'num';
+    rn.innerHTML = '<strong class="hint-filled">' + resN + '</strong>';
+    right.appendChild(rn);
+    const rbar = document.createElement('span');
+    rbar.className = 'bar';
+    right.appendChild(rbar);
+    const rd = document.createElement('span');
+    rd.className = 'den hint-expand-den';
+    rd.textContent = String(lcd);
+    right.appendChild(rd);
+    row.appendChild(right);
+
+    return row;
+  }
+
+  function guideBlank(key) {
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.inputMode = 'numeric';
+    inp.pattern = '[0-9]*';
+    inp.dataset.guide = key;
+    inp.setAttribute('aria-label', key);
+    inp.addEventListener('input', () => {
+      inp.value = inp.value.replace(/[^\d]/g, '');
+      inp.classList.remove('wrong', 'correct');
+    });
+    return inp;
+  }
+
+  /** Right panel: 假分數 → 帶分數（進位）引導 */
+  function renderCarryGuide(box, step) {
+    const P = step.process;
+    const title = document.createElement('div');
+    title.className = 'hint-process-title';
+    title.textContent = '假分數變帶分數';
+    box.appendChild(title);
+
+    const pills = document.createElement('div');
+    pills.className = 'hint-guide-pills';
+    const names = ['認假分數', '除法變帶分數'];
+    names.forEach((name, i) => {
+      const pill = document.createElement('div');
+      let cls = 'hint-guide-pill';
+      if (state.hintGuideDone || i < state.hintGuideStage) cls += ' done';
+      else if (i === state.hintGuideStage) cls += ' current';
+      pill.className = cls;
+      pill.textContent = (i + 1) + '. ' + name;
+      pills.appendChild(pill);
+    });
+    box.appendChild(pills);
+
+    const body = document.createElement('div');
+    body.className = 'hint-guide-body';
+    box.appendChild(body);
+
+    if (state.hintGuideDone) {
+      const ok = document.createElement('p');
+      ok.className = 'hint-guide-ok';
+      ok.textContent = '✓ 假分數已變帶分數！可以對照左邊填：整數 ' + (P.whole + P.carry) + '，分數 ' + P.rem + '/' + P.d + '。';
+      body.appendChild(ok);
+      body.appendChild(buildCarryResultReadonly(P));
+      return;
+    }
+
+    if (state.hintGuideStage <= 0) {
+      renderCarryStageRecognize(body, P);
+    } else {
+      renderCarryStageDivide(body, P);
+    }
+  }
+
+  function buildCarryResultReadonly(P) {
+    const wrap = document.createElement('div');
+    wrap.className = 'hint-carry-result';
+    wrap.innerHTML =
+      '<div class="hint-carry-eq">' +
+      '<span class="term-whole">' + P.whole + '</span> ' +
+      '<span class="frac"><span class="num term-num">' + P.n + '</span><span class="bar"></span><span class="den term-den">' + P.d + '</span></span>' +
+      ' = ' +
+      '<span class="term-whole">' + (P.whole + P.carry) + '</span> ' +
+      '<span class="frac"><span class="num term-num">' + P.rem + '</span><span class="bar"></span><span class="den term-den">' + P.d + '</span></span>' +
+      '</div>';
+    return wrap;
+  }
+
+  function renderCarryStageRecognize(body, P) {
+    const h = document.createElement('h4');
+    h.textContent = '① 認假分數';
+    body.appendChild(h);
+    const p = document.createElement('p');
+    // colorizeMathTerms escapes HTML — build markup after coloring plain text
+    p.innerHTML =
+      '分數部分 <strong class="term-num">' + P.n + '</strong>/<strong class="term-den">' + P.d + '</strong>：' +
+      colorizeMathTerms('分子 ' + P.n + ' ≥ 分母 ' + P.d + '，所以係') +
+      '<strong>假分數</strong>' +
+      colorizeMathTerms('（大過或等於 1）。假分數要先變做') +
+      '<strong>帶分數</strong>' +
+      colorizeMathTerms('，先好同整數合埋。');
+    body.appendChild(p);
+    const tip = document.createElement('p');
+    tip.className = 'hint-guide-tip';
+    tip.textContent = '下一步會用「分子 ÷ 分母」搵商同餘數。';
+    body.appendChild(tip);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = '下一步：除法變帶分數';
+    btn.addEventListener('click', () => {
+      state.hintGuideStage = 1;
+      state.hintGuideDone = false;
+      renderHints();
+    });
+    body.appendChild(btn);
+  }
+
+  function renderCarryStageDivide(body, P) {
+    const h = document.createElement('h4');
+    h.textContent = '② 除法變帶分數';
+    body.appendChild(h);
+    const tip = document.createElement('p');
+    tip.className = 'hint-guide-tip';
+    tip.innerHTML =
+      colorizeMathTerms('用分子 ÷ 分母搵商同餘數；') +
+      colorizeMathTerms('然後 ') +
+      '<strong>整數＋商＋餘/分母</strong>' +
+      colorizeMathTerms(' = 帶分數。');
+    body.appendChild(tip);
+
+    // n ÷ d = □ ... □
+    const divRow = document.createElement('div');
+    divRow.className = 'hint-carry-div';
+    divRow.appendChild(document.createTextNode(P.n + ' ÷ ' + P.d + ' = '));
+    const qInp = document.createElement('input');
+    qInp.type = 'text';
+    qInp.inputMode = 'numeric';
+    qInp.pattern = '[0-9]*';
+    qInp.dataset.guide = 'carry_q';
+    qInp.placeholder = '商';
+    qInp.setAttribute('aria-label', '商');
+    divRow.appendChild(qInp);
+    divRow.appendChild(document.createTextNode(' … '));
+    const rInp = document.createElement('input');
+    rInp.type = 'text';
+    rInp.inputMode = 'numeric';
+    rInp.pattern = '[0-9]*';
+    rInp.dataset.guide = 'carry_r';
+    rInp.placeholder = '餘';
+    rInp.setAttribute('aria-label', '餘數');
+    divRow.appendChild(rInp);
+    body.appendChild(divRow);
+
+    const join = document.createElement('p');
+    join.style.margin = '0.75rem 0 0.35rem';
+    join.innerHTML = colorizeMathTerms('合埋帶分數：');
+    body.appendChild(join);
+
+    // (整數) + (商) + (餘)/分母 = [新整數] [新分子]/分母  （分數用分線）
+    const mixRow = document.createElement('div');
+    mixRow.className = 'hint-carry-div hint-carry-eq';
+    const wholeParen = document.createElement('span');
+    wholeParen.innerHTML = '(<span class="term-whole">' + P.whole + '</span>)';
+    mixRow.appendChild(wholeParen);
+    mixRow.appendChild(document.createTextNode(' + '));
+    const qParen = document.createElement('span');
+    qParen.textContent = '(商)';
+    mixRow.appendChild(qParen);
+    mixRow.appendChild(document.createTextNode(' + '));
+    const remFrac = document.createElement('span');
+    remFrac.className = 'frac';
+    remFrac.setAttribute('aria-label', '餘 分之 ' + P.d);
+    remFrac.innerHTML =
+      '<span class="num term-num">餘</span><span class="bar"></span><span class="den term-den">' +
+      P.d +
+      '</span>';
+    mixRow.appendChild(remFrac);
+    mixRow.appendChild(document.createTextNode(' = '));
+    const wInp = document.createElement('input');
+    wInp.type = 'text';
+    wInp.inputMode = 'numeric';
+    wInp.pattern = '[0-9]*';
+    wInp.dataset.guide = 'carry_new_w';
+    wInp.placeholder = '□';
+    wInp.setAttribute('aria-label', '新整數');
+    mixRow.appendChild(wInp);
+    const ansFrac = document.createElement('span');
+    ansFrac.className = 'frac';
+    ansFrac.setAttribute('aria-label', '新分子 分之 ' + P.d);
+    const nInp = document.createElement('input');
+    nInp.type = 'text';
+    nInp.inputMode = 'numeric';
+    nInp.pattern = '[0-9]*';
+    nInp.dataset.guide = 'carry_new_n';
+    nInp.placeholder = '□';
+    nInp.setAttribute('aria-label', '新分子');
+    const numWrap = document.createElement('span');
+    numWrap.className = 'num term-num';
+    numWrap.appendChild(nInp);
+    ansFrac.appendChild(numWrap);
+    const ansBar = document.createElement('span');
+    ansBar.className = 'bar';
+    ansFrac.appendChild(ansBar);
+    const denSpan = document.createElement('span');
+    denSpan.className = 'den term-den';
+    denSpan.textContent = String(P.d);
+    ansFrac.appendChild(denSpan);
+    mixRow.appendChild(ansFrac);
+    body.appendChild(mixRow);
+
+    const fb = document.createElement('div');
+    fb.className = 'step-feedback';
+    fb.id = 'hint-guide-fb';
+    body.appendChild(fb);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = '核對假分數→帶分數';
+    btn.style.marginTop = '0.65rem';
+    btn.addEventListener('click', () => {
+      const checks = [
+        { sel: '[data-guide="carry_q"]', exp: P.carry },
+        { sel: '[data-guide="carry_r"]', exp: P.rem },
+        { sel: '[data-guide="carry_new_w"]', exp: P.whole + P.carry },
+        { sel: '[data-guide="carry_new_n"]', exp: P.rem },
+      ];
+      let allOk = true;
+      checks.forEach((c) => {
+        const inp = body.querySelector(c.sel);
+        if (!inp) { allOk = false; return; }
+        const num = Number(inp.value.trim());
+        const ok = inp.value.trim() !== '' && num === c.exp;
+        inp.classList.toggle('correct', ok);
+        inp.classList.toggle('wrong', !ok);
+        if (!ok) allOk = false;
+      });
+      const fbEl = $('#hint-guide-fb');
+      if (allOk) {
+        if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 假分數變帶分數啱！'; }
+        state.hintGuideDone = true;
+        setMascot('thumbsup');
+        setTimeout(() => {
+          renderSteps();
+          renderHints();
+        }, 350);
+      } else {
+        if (fbEl) {
+          fbEl.className = 'step-feedback err';
+          fbEl.textContent = '再試：' + P.n + ' ÷ ' + P.d + ' 嘅商同餘數，再加去整數 ' + P.whole + '。';
+        }
+      }
+    });
+    body.appendChild(btn);
   }
 
   function renderHintText() {
@@ -1110,9 +2073,12 @@
     } else {
       panel.classList.add('hidden');
       work.classList.add('expanded');
+      // Hints off → left answering unlocked immediately
     }
     updateHintToggleFab();
     $('#btn-toggle-hint').textContent = state.hintOpen ? '隱藏提示' : '顯示提示';
+    renderSteps();
+    renderHints();
   }
 
   function updateHintToggleFab() {
@@ -1125,6 +2091,104 @@
       fab.classList.remove('show');
     }
   }
+
+
+  // ---------- On-screen numeric keypad (mobile-friendly) ----------
+  let lastNumInput = null;
+
+  function isKeypadTarget(el) {
+    if (!el || el.tagName !== 'INPUT' || el.disabled) return false;
+    if (!el.closest('#work-panel, #hint-panel')) return false;
+    // Locked / graded-complete blanks (not OSK-suppressed)
+    if (el.readOnly && !el.dataset.osk) return false;
+    const mode = el.inputMode || '';
+    return (
+      mode === 'numeric' ||
+      mode === 'none' ||
+      el.pattern === '[0-9]*' ||
+      el.dataset.field != null ||
+      el.dataset.guide != null
+    );
+  }
+
+  function listKeypadTargets() {
+    const root = $('#screen-practice');
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll('#work-panel input, #hint-panel input')
+    ).filter(isKeypadTarget);
+  }
+
+  function findFirstEmptyNumInput() {
+    const all = listKeypadTargets();
+    return all.find((el) => !String(el.value || '').trim()) || all[0] || null;
+  }
+
+  function resolveKeypadTarget() {
+    const input = lastNumInput;
+    if (input && input.isConnected && isKeypadTarget(input)) return input;
+    return findFirstEmptyNumInput();
+  }
+
+  function wantsOnscreenKeypad() {
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function suppressSoftKeyboard(el) {
+    if (!wantsOnscreenKeypad() || !el) return;
+    el.dataset.osk = '1';
+    el.setAttribute('readonly', 'readonly');
+    el.inputMode = 'none';
+  }
+
+  function applyKeypadKey(key) {
+    const input = resolveKeypadTarget();
+    if (!input) return;
+    suppressSoftKeyboard(input);
+    if (key === 'del') {
+      input.value = String(input.value || '').slice(0, -1);
+    } else if (/^\d$/.test(key)) {
+      input.value = (String(input.value || '') + key).replace(/[^\d]/g, '');
+    } else {
+      return;
+    }
+    input.classList.remove('wrong');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    try {
+      input.focus({ preventScroll: true });
+    } catch (e) {
+      input.focus();
+    }
+    lastNumInput = input;
+  }
+
+  function bindNumKeypad() {
+    const pad = $('#num-keypad');
+    if (!pad) return;
+
+    document.addEventListener('focusin', (e) => {
+      if (isKeypadTarget(e.target)) {
+        lastNumInput = e.target;
+        suppressSoftKeyboard(e.target);
+      }
+    });
+
+    // Keep the blank focused when tapping keys (don't steal focus)
+    pad.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button[data-key]')) e.preventDefault();
+    });
+
+    pad.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-key]');
+      if (!btn || btn.disabled) return;
+      applyKeypadKey(btn.dataset.key);
+    });
+  }
+
 
   // ---------- Wire events ----------
   function bind() {
@@ -1177,6 +2241,8 @@
       updateStreakUI();
       newQuestion();
     });
+
+    bindNumKeypad();
   }
 
   // ---------- Boot ----------
