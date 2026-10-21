@@ -55,22 +55,36 @@
     return fields;
   }
 
+  function simplifyDivisorFields(fromN, fromD) {
+    const g = M.gcd(fromN, fromD);
+    return [
+      { key: 'simp_div_n', label: '約分除數（分子）', expected: g },
+      { key: 'simp_div_d', label: '約分除數（分母）', expected: g },
+    ];
+  }
+
   function buildSimplifyCheckProper(sumN, d, forceAlways) {
     const simp = M.simplify(sumN, d);
     const needs = simp.n !== sumN || simp.d !== d;
     if (!forceAlways && !needs) return null;
+    const answerFields = needs
+      ? simplifyDivisorFields(sumN, d).concat([
+          { key: 'simp_n', label: '最簡分子', expected: simp.n },
+          { key: 'simp_d', label: '最簡分母', expected: simp.d },
+        ])
+      : [
+          { key: 'simp_n', label: '最簡分子', expected: simp.n },
+          { key: 'simp_d', label: '最簡分母', expected: simp.d },
+        ];
     return {
       id: 'check-simplify',
-      title: '是否需要約分？（黃金密碼：2、3、5、7）',
-      hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數。',
+      title: '是否需要約分（分子分母同時除以相同的數）？（黃金密碼：2、3、5、7）',
+      hint: '按下面「有」或「沒有」。約分是分子和分母同時除以相同的數，可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫除數和最簡分數。',
       isSimplifyChoice: true,
       needsSimplify: needs,
       fields: [],
-      answerFields: [
-        { key: 'simp_n', label: '最簡分子', expected: simp.n },
-        { key: 'simp_d', label: '最簡分母', expected: simp.d },
-      ],
-      show: { type: 'check-simplify', from: { n: sumN, d }, to: simp, needs },
+      answerFields,
+      show: { type: 'check-simplify', from: { n: sumN, d }, to: simp, needs, div: M.gcd(sumN, d) },
     };
   }
 
@@ -172,22 +186,25 @@
     if (q.forceSimplifyCheck) {
       steps.push({
         id: 'check-simplify-mixed',
-        title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡帶分數（整數不變）。',
+        title: '是否需要約分（分子分母同時除以相同的數）？（黃金密碼：2、3、5、7）',
+        hint: '按下面「有」或「沒有」。約分是分子和分母同時除以相同的數，可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫除數和最簡帶分數（整數不變）。',
         isSimplifyChoice: true,
         needsSimplify: needsSimp,
         fields: [],
-        answerFields: [
+        answerFields: (needsSimp
+          ? simplifyDivisorFields(fracSumN, d)
+          : []).concat([
           { key: 'final_w', label: '整數', expected: wholeSum },
           { key: 'simp_n', label: '最簡分子', expected: s.n },
           { key: 'simp_d', label: '最簡分母', expected: s.d },
-        ],
+        ]),
         show: {
           type: 'check-simplify-mixed',
           w: wholeSum,
           from: { n: fracSumN, d },
           to: s,
           needs: needsSimp,
+          div: M.gcd(fracSumN, d),
         },
       });
     } else if (q.skipSimplifyStep) {
@@ -285,7 +302,7 @@
     if (q.forceSimplifyCheck || q.l2Stage === 'C') {
       const chk = buildSimplifyCheckProper(sumN, lcd, true);
       if (chk) {
-        chk.hint = '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數。可以用假分數作答案，不用轉成帶分數。';
+        chk.hint = '按下面「有」或「沒有」。約分是分子和分母同時除以相同的數，可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫除數和最簡分數。可以用假分數作答案，不用轉成帶分數。';
         steps.push(chk);
       }
     } else if (q.level !== 2 && (simp.n !== sumN || simp.d !== lcd)) {
@@ -387,22 +404,25 @@
     if (q.l2Stage === 'C' || q.forceSimplifyCheck) {
       steps.push({
         id: 'check-simplify-mixed',
-        title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '按下面「有」或「沒有」。約分可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
+        title: '是否需要約分（分子分母同時除以相同的數）？（黃金密碼：2、3、5、7）',
+        hint: '按下面「有」或「沒有」。約分是分子和分母同時除以相同的數，可以試黃金密碼質數 2、3、5、7。如果有約分，再填寫除數和最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
         isSimplifyChoice: true,
         needsSimplify: needsSimp,
         fields: [],
-        answerFields: [
+        answerFields: (needsSimp
+          ? simplifyDivisorFields(fracSumN, lcd)
+          : []).concat([
           { key: 'final_w', label: '整數', expected: wholeSum },
           { key: 'simp_n', label: '最簡分子', expected: s.n },
           { key: 'simp_d', label: '最簡分母', expected: s.d },
-        ],
+        ]),
         show: {
           type: 'check-simplify-mixed',
           w: wholeSum,
           from: { n: fracSumN, d: lcd },
           to: s,
           needs: needsSimp,
+          div: M.gcd(fracSumN, lcd),
         },
       });
     }
@@ -478,22 +498,23 @@
     if (needsSimp) {
       steps.push({
         id: 'check-simplify-mixed',
-        title: '是否需要約分？（黃金密碼：2、3、5、7）',
-        hint: '按下面「有」或「沒有」。如果有約分，再填寫最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
+        title: '是否需要約分（分子分母同時除以相同的數）？（黃金密碼：2、3、5、7）',
+        hint: '按下面「有」或「沒有」。約分是分子和分母同時除以相同的數。如果有約分，再填寫除數和最簡分數（整數不變）。可以用假分數作答案，不用轉成帶分數。',
         isSimplifyChoice: true,
         needsSimplify: true,
         fields: [],
-        answerFields: [
+        answerFields: simplifyDivisorFields(curN, curD).concat([
           { key: 'final_w', label: '整數', expected: curW },
           { key: 'simp_n', label: '最簡分子', expected: s.n },
           { key: 'simp_d', label: '最簡分母', expected: s.d },
-        ],
+        ]),
         show: {
           type: 'check-simplify-mixed',
           w: curW,
           from: { n: curN, d: curD },
           to: s,
           needs: true,
+          div: M.gcd(curN || 0, curD || 1),
         },
       });
     }
@@ -547,8 +568,14 @@
     if (wrongCount < 2) return null;
     const f = step.fields.find((x) => x.key === fieldKey);
     if (f && f.hintExtra) return f.hintExtra;
+    if (fieldKey === 'simp_div_n' || fieldKey === 'simp_div_d') {
+      return '約分時分子和分母要除以同一個大於 1 的數。可以試黃金密碼 2、3、5、7。';
+    }
     if (fieldKey.startsWith('sd_div')) return '短除第一個除數試較小的質數，例如 2 或 3。';
     if (fieldKey.startsWith('sd_')) return '再看一看短除：兩個數都可以被同一個數整除，才寫在左邊。';
+    if (fieldKey === 'simp_n' || fieldKey === 'simp_d') {
+      return '用分子和分母同時除以同一個數，得到最簡分數。';
+    }
     if (fieldKey.includes('n') || fieldKey.includes('分子')) return '分子計算錯了，請慢慢再加一次。';
     if (fieldKey.includes('d') || fieldKey.includes('分母')) return '分母通常不變（通分後用公倍數）。';
     return '請慢慢再試這一格，可以先用草稿計算。';

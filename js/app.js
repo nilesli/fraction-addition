@@ -29,6 +29,8 @@
     lastQuestionFp: null, // avoid consecutive identical questions
     wrongCounts: {}, // `${stepIndex}:${fieldKey}` -> count
     questionMistakes: 0, // total wrong attempts this question
+    questionAutoRevealed: false, // 連錯三次自動顯示答案 → 整題記為錯誤
+    partConsecutiveWrongs: {}, // partKey -> 連續答錯次數（每部分獨立）
     questionStartedAt: 0, // Date.now() when solving starts
     pendingStageAdvance: null, // 'B' | 'C' | 'done' after celebration
     hintGuideStage: 0, // 0要通分 1短除+乘數 2擴分
@@ -70,6 +72,8 @@
   function fieldRole(key) {
     if (!key) return null;
     if (key === 'need_simp') return null;
+    // 約分除數格：白底黑框，不套分子／分母色
+    if (key === 'simp_div_n' || key === 'simp_div_d') return null;
     if (
       key === 'whole_sum' ||
       key === 'final_w' ||
@@ -425,6 +429,8 @@
     state.complete = false;
     state.wrongCounts = {};
     state.questionMistakes = 0;
+    state.questionAutoRevealed = false;
+    state.partConsecutiveWrongs = {};
     state.questionStartedAt = Date.now();
     state.lastSubmittedAnswer = null;
     state.lastPlayRecord = null;
@@ -565,9 +571,20 @@
     } else if (s.type === 'add-frac-expanded') {
       wrap.innerHTML = `${htmlFrac(s.ea.n, s.ea.d)}<span class="op">+</span>${htmlFrac(s.eb.n, s.eb.d)}`;
     } else if (s.type === 'simplify' || s.type === 'check-simplify') {
-      wrap.innerHTML = `${htmlFrac(s.from.n, s.from.d)} → 有沒有約分？`;
+      if (step._showAnswer) {
+        wrap.innerHTML = '';
+        wrap.style.display = 'none';
+      } else {
+        wrap.innerHTML = `${htmlFrac(s.from.n, s.from.d)} → 是否需要約分（分子分母同時除以相同的數）？`;
+      }
     } else if (s.type === 'check-simplify-mixed') {
-      wrap.innerHTML = `${s.w} ${htmlFrac(s.from.n, s.from.d)} → 有沒有約分？`;
+      if (step._showAnswer) {
+        wrap.innerHTML = '';
+        wrap.style.display = 'none';
+      } else {
+        const wPart = (s.w && s.w > 0) ? `${s.w} ` : '';
+        wrap.innerHTML = `${wPart}${htmlFrac(s.from.n, s.from.d)} → 是否需要約分（分子分母同時除以相同的數）？`;
+      }
     } else if (s.type === 'to-mixed') {
       wrap.innerHTML = `${htmlFrac(s.from.n, s.from.d)} → 帶分數？`;
     } else if (s.type === 'carry') {
@@ -909,6 +926,7 @@
     const readonly = status !== 'current';
     const needs = !!step.needsSimplify;
     const chosen = step._choice; // true=有, false=沒有, undefined=not yet
+    const CHOICE_Q = '是否需要約分（分子分母同時除以相同的數）？';
 
     if (status === 'done' || status === 'review') {
       const summary = document.createElement('div');
@@ -917,24 +935,10 @@
       summary.textContent = '✓ ' + label;
       box.appendChild(summary);
       if (needs && step.answerFields) {
-        // show correct simplified answer
-        const fake = { fields: step.answerFields };
-        const keys = step.answerFields.map((f) => f.key);
-        if (keys.includes('final_w')) {
-          box.appendChild(buildMixedInput(
-            { fields: step.answerFields },
-            'final_w', 'simp_n', 'simp_d',
-            true
-          ));
-        } else {
-          const row = document.createElement('div');
-          row.style.display = 'inline-flex';
-          row.style.alignItems = 'center';
-          row.style.gap = '0.35rem';
-          row.appendChild(eqEquals());
-          row.appendChild(buildFracInput({ fields: step.answerFields }, 'simp_n', 'simp_d', true));
-          box.appendChild(row);
+        if (!step.fields || !step.fields.length) {
+          step.fields = step.answerFields.slice();
         }
+        box.appendChild(buildSimplifyDivideWorkspace(step, true));
       }
       return box;
     }
@@ -943,7 +947,7 @@
     if (!step._showAnswer) {
       const prompt = document.createElement('div');
       prompt.className = 'simplify-choice-prompt';
-      prompt.textContent = '有沒有約分？';
+      prompt.textContent = CHOICE_Q;
       box.appendChild(prompt);
 
       const row = document.createElement('div');
@@ -967,28 +971,173 @@
       return box;
     }
 
-    // Answer phase after correct 「有」
+    // Answer phase after correct 「有」— ÷ 除數 + 最簡結果（對齊手繪草圖）
     const note = document.createElement('div');
-    note.className = 'simplify-choice-prompt';
-    note.innerHTML = colorizeMathTerms('對！請填寫最簡分子／分母（整數不變）：');
+    note.className = 'simplify-choice-prompt simplify-fill-prompt';
+    const sh = step.show || {};
+    const hasWhole = !!(step.answerFields || []).some((f) => f.key === 'final_w');
+    if (hasWhole) {
+      note.innerHTML = colorizeMathTerms('對！請填寫最簡分子／分母（整數不變）：');
+    } else {
+      note.innerHTML = colorizeMathTerms('對！請填寫最簡分子／分母：');
+    }
     box.appendChild(note);
 
     if (!step.fields || !step.fields.length) {
       step.fields = step.answerFields.slice();
     }
-    const keys = step.answerFields.map((f) => f.key);
-    if (keys.includes('final_w')) {
-      box.appendChild(buildMixedInput(step, 'final_w', 'simp_n', 'simp_d', false));
-    } else {
-      const row = document.createElement('div');
-      row.style.display = 'inline-flex';
-      row.style.alignItems = 'center';
-      row.style.gap = '0.35rem';
-      row.appendChild(eqEquals());
-      row.appendChild(buildFracInput(step, 'simp_n', 'simp_d', false));
-      box.appendChild(row);
-    }
+    box.appendChild(buildSimplifyDivideWorkspace(step, false));
     return box;
+  }
+
+  /** 約分工作區：原分數 ÷[除數]/÷[除數] = 最簡（帶分數含整數格） */
+  function buildSimplifyDivideWorkspace(step, readonly) {
+    const sh = step.show || {};
+    const from = sh.from || { n: 0, d: 1 };
+    const keys = (step.fields || step.answerFields || []).map((f) => f.key);
+    const hasWhole = keys.includes('final_w');
+    const wholeVal = hasWhole ? (sh.w != null ? sh.w : 0) : null;
+
+    const row = document.createElement('div');
+    row.className = 'simplify-workspace';
+
+    // 左側：整數（若有）+ 分子÷框 / 分母÷框
+    const fromBox = document.createElement('div');
+    fromBox.className = 'simplify-from';
+    if (hasWhole && wholeVal != null && wholeVal > 0) {
+      const wSpan = document.createElement('span');
+      wSpan.className = 'simplify-from-whole term-whole';
+      wSpan.textContent = String(wholeVal);
+      fromBox.appendChild(wSpan);
+    }
+
+    const fracCol = document.createElement('div');
+    fracCol.className = 'simplify-from-frac';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'simplify-from-row';
+    const numSpan = document.createElement('span');
+    numSpan.className = 'simplify-from-num term-num';
+    numSpan.textContent = String(from.n);
+    topRow.appendChild(numSpan);
+    const divOpN = document.createElement('span');
+    divOpN.className = 'simplify-div-op';
+    divOpN.textContent = '÷';
+    topRow.appendChild(divOpN);
+    const divInN = makeNumInput(step, 'simp_div_n', readonly);
+    divInN.classList.add('simplify-div-input');
+    divInN.setAttribute('aria-label', '分子的約分除數');
+    topRow.appendChild(divInN);
+    fracCol.appendChild(topRow);
+
+    const bar = document.createElement('div');
+    bar.className = 'simplify-from-bar';
+    fracCol.appendChild(bar);
+
+    const botRow = document.createElement('div');
+    botRow.className = 'simplify-from-row';
+    const denSpan = document.createElement('span');
+    denSpan.className = 'simplify-from-den term-den';
+    denSpan.textContent = String(from.d);
+    botRow.appendChild(denSpan);
+    const divOpD = document.createElement('span');
+    divOpD.className = 'simplify-div-op';
+    divOpD.textContent = '÷';
+    botRow.appendChild(divOpD);
+    const divInD = makeNumInput(step, 'simp_div_d', readonly);
+    divInD.classList.add('simplify-div-input');
+    divInD.setAttribute('aria-label', '分母的約分除數');
+    botRow.appendChild(divInD);
+    fracCol.appendChild(botRow);
+
+    fromBox.appendChild(fracCol);
+    row.appendChild(fromBox);
+
+    // 兩個除數格同步（分子分母須除以相同的數）
+    if (!readonly) {
+      const sync = (src, dst) => {
+        src.addEventListener('input', () => {
+          if (dst.value !== src.value) {
+            dst.value = src.value;
+            dst.classList.remove('wrong');
+          }
+        });
+      };
+      sync(divInN, divInD);
+      sync(divInD, divInN);
+    }
+
+    row.appendChild(eqEquals());
+
+    // 右側結果
+    const result = document.createElement('div');
+    result.className = 'simplify-result';
+    if (hasWhole) {
+      const wInput = makeNumInput(step, 'final_w', readonly);
+      wInput.classList.add('whole-input', 'simplify-result-whole');
+      wInput.style.width = '3.2rem';
+      wInput.style.height = '3.4rem';
+      wInput.style.fontSize = '1.4rem';
+      wInput.style.fontWeight = '700';
+      wInput.style.textAlign = 'center';
+      wInput.style.borderRadius = '10px';
+      wInput.setAttribute('aria-label', '整數（不變）');
+      result.appendChild(wInput);
+    }
+    result.appendChild(buildFracInput(step, 'simp_n', 'simp_d', readonly));
+    row.appendChild(result);
+
+    return row;
+  }
+
+  const AUTO_REVEAL_MSG = '已連續答錯三次，以下為正確答案，請繼續。';
+  const AUTO_REVEAL_AFTER_MS = 900;
+
+  function markQuestionIncorrectByReveal() {
+    state.questionAutoRevealed = true;
+  }
+
+  function registerPartWrong(partKey) {
+    if (!state.partConsecutiveWrongs) state.partConsecutiveWrongs = {};
+    state.partConsecutiveWrongs[partKey] = (state.partConsecutiveWrongs[partKey] || 0) + 1;
+    return state.partConsecutiveWrongs[partKey];
+  }
+
+  function resetPartConsecutive(partKey) {
+    if (!state.partConsecutiveWrongs) state.partConsecutiveWrongs = {};
+    state.partConsecutiveWrongs[partKey] = 0;
+  }
+
+  function setRevealFeedback(fbEl, msg) {
+    if (!fbEl) return;
+    fbEl.className = 'step-feedback reveal';
+    fbEl.textContent = msg || AUTO_REVEAL_MSG;
+  }
+
+  function fillInputExpected(inp, expected) {
+    if (!inp) return;
+    inp.value = String(expected);
+    inp.classList.remove('wrong');
+    inp.classList.add('correct', 'auto-revealed');
+  }
+
+  /** 左邊步驟：連錯三次 → 填入正確答案並繼續（整題仍記錯誤） */
+  function revealAndAdvanceStep(i, gradeStep) {
+    markQuestionIncorrectByReveal();
+    const wrap = $(`.step-inputs[data-step-index="${i}"]`);
+    const proc = $('#hint-process');
+    (gradeStep.fields || []).forEach((f) => {
+      let inp = wrap && wrap.querySelector(`input[data-field="${f.key}"]`);
+      if (!inp && proc) inp = proc.querySelector(`input[data-field="${f.key}"]`);
+      fillInputExpected(inp, f.expected);
+    });
+    if (i + 1 >= state.steps.length) {
+      const values = Object.fromEntries((gradeStep.fields || []).map((f) => [f.key, String(f.expected)]));
+      rememberSubmittedAnswer(gradeStep, values);
+    }
+    setRevealFeedback($('#step-feedback'));
+    setMascot('think');
+    setTimeout(() => advanceAfterStepOk(i), AUTO_REVEAL_AFTER_MS);
   }
 
   function onSimplifyChoice(saidHas) {
@@ -1002,6 +1151,7 @@
 
     if (saidHas === needs) {
       step._choice = saidHas;
+      resetPartConsecutive(`step:${i}:choice`);
       if (!needs) {
         // 「沒有」且正確 → 即時過關（通常係最後一步）
         // 用上一布學生填嘅（或 expected）作完成畫面答案形式
@@ -1029,7 +1179,7 @@
         step.fields = step.answerFields.slice();
         if (fb) {
           fb.className = 'step-feedback ok';
-          fb.textContent = '✓ 對！現在請填寫最簡分數。';
+          fb.textContent = '✓ 對！請填寫除數和最簡分子／分母。';
         }
         setMascot('thumbsup');
         renderSteps();
@@ -1042,6 +1192,19 @@
     } else {
       // 撳錯
       step._choice = undefined;
+      const wk = `${i}:choice`;
+      const partKey = `step:${i}:choice`;
+      state.wrongCounts[wk] = (state.wrongCounts[wk] || 0) + 1;
+      state.questionMistakes += 1;
+      const consec = registerPartWrong(partKey);
+      if (consec >= 3) {
+        // 連錯三次：自動選正確選項並繼續；整題記為錯誤
+        markQuestionIncorrectByReveal();
+        setRevealFeedback(fb);
+        setMascot('think');
+        setTimeout(() => onSimplifyChoice(needs), 500);
+        return;
+      }
       if (fb) {
         fb.className = 'step-feedback err';
         fb.textContent = needs
@@ -1049,9 +1212,6 @@
           : '再想一想：已經是最簡分數，不用約分，請按「沒有」。';
       }
       setMascot('think');
-      const wk = `${i}:choice`;
-      state.wrongCounts[wk] = (state.wrongCounts[wk] || 0) + 1;
-      state.questionMistakes += 1;
       const extraEl = $('#hint-extra');
       if ((state.wrongCounts[wk] || 0) >= 2 && extraEl) {
         extraEl.innerHTML = colorizeMathTerms(needs
@@ -1153,7 +1313,7 @@
       if (!inp && proc) inp = proc.querySelector(`input[data-field="${key}"]`);
       if (!inp) return;
       const r = result.results[key];
-      inp.classList.remove('wrong', 'correct');
+      inp.classList.remove('wrong', 'correct', 'auto-revealed');
       if (r.ok) {
         inp.classList.add('correct');
       } else {
@@ -1165,7 +1325,9 @@
     });
 
     const fb = $('#step-feedback');
+    const partKey = `step:${i}`;
     if (result.allOk) {
+      resetPartConsecutive(partKey);
       // Final accepted step → remember student's answer shape for completion screen
       if (i + 1 >= state.steps.length) {
         rememberSubmittedAnswer(gradeStep, values);
@@ -1177,15 +1339,33 @@
       setMascot('thumbsup');
       setTimeout(() => advanceAfterStepOk(i), 450);
     } else {
+      const consec = registerPartWrong(partKey);
+      if (consec >= 3) {
+        revealAndAdvanceStep(i, gradeStep);
+        return;
+      }
       if (fb) {
         fb.className = 'step-feedback err';
-        fb.textContent = '這一格請再試，不要緊。';
+        let msg = '這一格請再試，不要緊。';
+        if (step.isSimplifyChoice && step._showAnswer) {
+          const rn = result.results.simp_div_n;
+          const rd = result.results.simp_div_d;
+          if ((rn && !rn.ok) || (rd && !rd.ok)) {
+            msg = '約分時，分子和分母要同時除以相同的數（大於 1），再填最簡結果。';
+          } else if ((result.results.simp_n && !result.results.simp_n.ok) ||
+                     (result.results.simp_d && !result.results.simp_d.ok)) {
+            msg = '除數對了嗎？請再檢查最簡分子和分母。';
+          } else if (result.results.final_w && !result.results.final_w.ok) {
+            msg = '整數部分不用改，請再檢查。';
+          }
+        }
+        fb.textContent = msg;
       }
       setMascot('think');
       // Extra hints after 2–3 wrongs
       let extra = null;
       step.fields.forEach((f) => {
-        if (!result.results[f.key].ok) {
+        if (result.results[f.key] && !result.results[f.key].ok) {
           const c = state.wrongCounts[`${i}:${f.key}`] || 0;
           const h = FracSteps.extraHintForField(step, f.key, c);
           if (h) extra = h;
@@ -1325,13 +1505,16 @@
   }
 
   async function recordPlaySession() {
-    const mistakes = sumWrongCounts();
+    // 含左邊核對 + 提示區（短除／擴分等）答錯次數
+    const mistakes = Math.max(sumWrongCounts(), Number(state.questionMistakes) || 0);
     const started = state.questionStartedAt || Date.now();
     const durationSec = Math.max(0, Math.round((Date.now() - started) / 1000));
     // L1/L2 stageStreak is incremented later in completeProblem; count this success now.
     const streakAfter = (state.level === 1 || state.level === 2)
       ? (state.stageStreak || 0) + 1
       : (state.streaks[state.level] || 0);
+    // 正確／錯誤：只要本題曾因連錯三次而自動顯示答案，即記為錯誤（即使最後填對）
+    const isCorrect = !state.questionAutoRevealed;
     const payload = {
       studentId: state.studentId,
       level: state.level,
@@ -1342,6 +1525,9 @@
       streakAfter,
       questionSummary: formatQuestionSummary(state.question),
       sessionId: ensurePlaySessionId(),
+      correct: isCorrect,
+      autoRevealed: !!state.questionAutoRevealed,
+      result: isCorrect ? '正確' : '錯誤',
     };
     state.lastPlayRecord = payload;
     setRecordStatus('pending', '正在儲存成績……');
@@ -1691,6 +1877,7 @@
       // Accept either order
       const ok =
         (v1 === P.d1 && v2 === P.d2) || (v1 === P.d2 && v2 === P.d1);
+      const partKey = 'guide:denoms';
       if (i1) {
         i1.classList.toggle('correct', ok && Number.isFinite(v1));
         i1.classList.toggle('wrong', !ok);
@@ -1700,11 +1887,24 @@
         i2.classList.toggle('wrong', !ok);
       }
       if (ok) {
+        resetPartConsecutive(partKey);
         fb.className = 'step-feedback ok';
         fb.textContent = '✓ 分母正確！';
         state.hintGuideStage = 1;
         setTimeout(() => renderHints(), 350);
       } else {
+        state.questionMistakes += 1;
+        const consec = registerPartWrong(partKey);
+        if (consec >= 3) {
+          markQuestionIncorrectByReveal();
+          fillInputExpected(i1, P.d1);
+          fillInputExpected(i2, P.d2);
+          setRevealFeedback(fb);
+          setMascot('think');
+          state.hintGuideStage = 1;
+          setTimeout(() => renderHints(), AUTO_REVEAL_AFTER_MS);
+          return;
+        }
         fb.className = 'step-feedback err';
         fb.textContent = '再看一看題目的兩個分母，填入空格。';
       }
@@ -1850,12 +2050,36 @@
 
       // Never skip to done here — only advance to stage 2 (擴分)
       const fbEl = $('#hint-guide-fb');
+      const partKey = 'guide:shortdiv';
       if (allOk) {
+        resetPartConsecutive(partKey);
         if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 短除和公倍數正確！下一步擴分。'; }
         state.hintGuideStage = 2; // MUST go to 分別擴分 — do not set hintGuideDone
         state.hintGuideDone = false;
         setTimeout(() => renderHints(), 350);
       } else {
+        state.questionMistakes += 1;
+        const consec = registerPartWrong(partKey);
+        if (consec >= 3) {
+          markQuestionIncorrectByReveal();
+          fields.forEach((f) => {
+            const inp = document.querySelector('#hint-process input[data-field="' + f.key + '"]');
+            fillInputExpected(inp, f.expected);
+          });
+          // 相乘格：優先填預期因數；格數唔啱則用「公倍數 × 1 × …」令積正確
+          if (factorInputs.length === expectedFactors.length) {
+            factorInputs.forEach((inp, idx) => fillInputExpected(inp, expectedFactors[idx]));
+          } else {
+            factorInputs.forEach((inp, idx) => fillInputExpected(inp, idx === 0 ? P.lcd : 1));
+          }
+          fillInputExpected(lcmInp, P.lcd);
+          setRevealFeedback(fbEl);
+          setMascot('think');
+          state.hintGuideStage = 2;
+          state.hintGuideDone = false;
+          setTimeout(() => renderHints(), AUTO_REVEAL_AFTER_MS);
+          return;
+        }
         if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '請再試短除空格、相乘和公倍數。'; }
       }
     });
@@ -1903,7 +2127,9 @@
         if (!ok) allOk = false;
       });
       const fbEl = $('#hint-guide-fb');
+      const partKey = 'guide:expand';
       if (allOk) {
+        resetPartConsecutive(partKey);
         if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 擴分正確！'; }
         state.hintGuideDone = true;
         setMascot('thumbsup');
@@ -1912,6 +2138,23 @@
           renderHints();
         }, 350);
       } else {
+        state.questionMistakes += 1;
+        const consec = registerPartWrong(partKey);
+        if (consec >= 3) {
+          markQuestionIncorrectByReveal();
+          checks.forEach((c) => {
+            const inp = body.querySelector(c.sel);
+            fillInputExpected(inp, c.exp);
+          });
+          setRevealFeedback(fbEl);
+          setMascot('think');
+          state.hintGuideDone = true;
+          setTimeout(() => {
+            renderSteps();
+            renderHints();
+          }, AUTO_REVEAL_AFTER_MS);
+          return;
+        }
         if (fbEl) { fbEl.className = 'step-feedback err'; fbEl.textContent = '再看一看倍數和擴分後的分子。'; }
       }
     });
@@ -2253,7 +2496,9 @@
         if (!ok) allOk = false;
       });
       const fbEl = $('#hint-guide-fb');
+      const partKey = 'guide:carry';
       if (allOk) {
+        resetPartConsecutive(partKey);
         if (fbEl) { fbEl.className = 'step-feedback ok'; fbEl.textContent = '✓ 假分數變成帶分數正確！'; }
         state.hintGuideDone = true;
         setMascot('thumbsup');
@@ -2262,6 +2507,23 @@
           renderHints();
         }, 350);
       } else {
+        state.questionMistakes += 1;
+        const consec = registerPartWrong(partKey);
+        if (consec >= 3) {
+          markQuestionIncorrectByReveal();
+          checks.forEach((c) => {
+            const inp = body.querySelector(c.sel);
+            fillInputExpected(inp, c.exp);
+          });
+          setRevealFeedback(fbEl);
+          setMascot('think');
+          state.hintGuideDone = true;
+          setTimeout(() => {
+            renderSteps();
+            renderHints();
+          }, AUTO_REVEAL_AFTER_MS);
+          return;
+        }
         if (fbEl) {
           fbEl.className = 'step-feedback err';
           fbEl.textContent = '請再試：' + P.n + ' ÷ ' + P.d + ' 的商和餘數，再加到整數 ' + P.whole + '。';
@@ -2620,6 +2882,29 @@
     return m + ' 分 ' + s + ' 秒';
   }
 
+  /** 單筆題目結果：正確／錯誤／—（舊資料無欄位） */
+  function recordResultLabel(r) {
+    if (!r) return '—';
+    if (r.result === '正確' || r.result === '錯誤') return r.result;
+    if (r.correct === true) return '正確';
+    if (r.correct === false) return '錯誤';
+    return '—';
+  }
+
+  function sessionResultSummary(stages) {
+    let ok = 0;
+    let bad = 0;
+    let unknown = 0;
+    (stages || []).forEach((r) => {
+      const lab = recordResultLabel(r);
+      if (lab === '正確') ok += 1;
+      else if (lab === '錯誤') bad += 1;
+      else unknown += 1;
+    });
+    if (ok + bad === 0) return '—';
+    return ok + ' 正確／' + bad + ' 錯誤';
+  }
+
   function buildTeacherSession(recs, key) {
     const sortedAsc = recs.slice().sort((a, b) => String(a.finishedAt || '').localeCompare(String(b.finishedAt || '')));
     let best = sortedAsc[0];
@@ -2636,6 +2921,7 @@
       studentId: (latest && latest.studentId) || (sortedAsc[0] && sortedAsc[0].studentId) || '',
       progressLabel: progressLabel(best),
       mistakes,
+      resultSummary: sessionResultSummary(sortedAsc),
       durationSec: duration,
       finishedAt: latest && latest.finishedAt,
       stages: sortedAsc,
@@ -2731,13 +3017,14 @@
     }
     const sessions = groupRecordsIntoSessions(list);
     if (!sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="teacher-empty">尚未有記錄</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="teacher-empty">尚未有記錄</td></tr>';
       return;
     }
     tbody.innerHTML = sessions.map((s) => {
       const expanded = teacherExpandedSessions.has(s.key);
       const sid = escapeHtml(s.studentId || '');
       const prog = escapeHtml(s.progressLabel || '');
+      const resultSum = escapeHtml(s.resultSummary || '—');
       const mistakes = s.mistakes != null ? s.mistakes : '';
       const dur = formatDuration(s.durationSec);
       const t = escapeHtml(formatTeacherTime(s.finishedAt));
@@ -2753,6 +3040,7 @@
           '</td>' +
           '<td>' + sid + '</td>' +
           '<td>' + prog + '</td>' +
+          '<td>' + resultSum + '</td>' +
           '<td>' + mistakes + '</td>' +
           '<td>' + dur + '</td>' +
           '<td>' + t + '</td>' +
@@ -2761,17 +3049,19 @@
       const detailRows = s.stages.map((r) => {
         const lv = 'L' + (r.level != null ? r.level : '');
         const stage = escapeHtml(stageDisplay(r));
+        const res = escapeHtml(recordResultLabel(r));
         const m = r.mistakes != null ? r.mistakes : '';
         const d = formatDuration(r.durationSec);
         const ft = escapeHtml(formatTeacherTime(r.finishedAt));
-        return '<tr><td>' + lv + '</td><td>' + stage + '</td><td>' + m + '</td><td>' + d + '</td><td>' + ft + '</td></tr>';
+        const resCls = res === '正確' ? ' teacher-result-ok' : (res === '錯誤' ? ' teacher-result-bad' : '');
+        return '<tr><td>' + lv + '</td><td>' + stage + '</td><td class="teacher-result' + resCls + '">' + res + '</td><td>' + m + '</td><td>' + d + '</td><td>' + ft + '</td></tr>';
       }).join('');
       const detail =
         '<tr class="teacher-detail-row" data-session-key="' + keyAttr + '">' +
-          '<td colspan="6">' +
+          '<td colspan="7">' +
             '<div class="teacher-detail-wrap">' +
               '<table class="teacher-detail-table">' +
-                '<thead><tr><th>關卡</th><th>關卡階段</th><th>錯次</th><th>用時</th><th>完成時間</th></tr></thead>' +
+                '<thead><tr><th>關卡</th><th>關卡階段</th><th>結果</th><th>錯次</th><th>用時</th><th>完成時間</th></tr></thead>' +
                 '<tbody>' + detailRows + '</tbody>' +
               '</table>' +
             '</div>' +
@@ -2856,7 +3146,7 @@
     });
     const csv = cloud && cloud.recordsToCsv
       ? cloud.recordsToCsv(flat)
-      : '\uFEFF學號,關卡,關卡階段,錯次,用時秒,完成時間,題目,場次\n';
+      : '\uFEFF學號,關卡,關卡階段,結果,錯次,用時秒,完成時間,題目,場次\n';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

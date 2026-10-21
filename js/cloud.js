@@ -191,6 +191,24 @@ async function saveRecord(partial) {
   if (partial.questionSummary) {
     record.questionSummary = String(partial.questionSummary).slice(0, 80);
   }
+  // 正確／錯誤（r23）：曾自動顯示答案 → 錯誤
+  if (partial.result === '正確' || partial.result === '錯誤') {
+    record.result = partial.result;
+  } else if (partial.correct === true) {
+    record.result = '正確';
+  } else if (partial.correct === false) {
+    record.result = '錯誤';
+  }
+  if (typeof partial.correct === 'boolean') {
+    record.correct = partial.correct;
+  } else if (record.result === '正確') {
+    record.correct = true;
+  } else if (record.result === '錯誤') {
+    record.correct = false;
+  }
+  if (partial.autoRevealed != null) {
+    record.autoRevealed = !!partial.autoRevealed;
+  }
 
   appendLocalMirror(record);
 
@@ -317,13 +335,18 @@ function subscribeRecords(teacherCode, onData, max = 300) {
 }
 
 function recordsToCsv(records) {
-  const header = ['學號', '關卡', '關卡階段', '錯次', '用時秒', '完成時間', '題目', '場次'];
+  const header = ['學號', '關卡', '關卡階段', '結果', '錯次', '用時秒', '完成時間', '題目', '場次'];
   const rows = records.map((r) => {
     const hk = formatHkTime(r.finishedAt);
+    let result = '';
+    if (r.result === '正確' || r.result === '錯誤') result = r.result;
+    else if (r.correct === true) result = '正確';
+    else if (r.correct === false) result = '錯誤';
     return [
       r.studentId || '',
       r.level != null ? `L${r.level}` : '',
       r.stage || '',
+      result,
       r.mistakes != null ? r.mistakes : '',
       r.durationSec != null ? r.durationSec : '',
       hk,
