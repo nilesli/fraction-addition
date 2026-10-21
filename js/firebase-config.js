@@ -1,19 +1,13 @@
 /**
  * 分數加法練習 — Firebase 設定（學生上傳用）
- *
- * 學生裝置要寫入雲端，必須在此檔填入真實 firebaseConfig，
- * 然後重新部署（設定會出現在前端，請搭配 Firestore 安全規則）。
- *
- * 老師本機睇報表：亦可在「老師報表」頁貼上 JSON，只存於該瀏覽器 localStorage。
- *
- * 範例（請改成你的專案數值，欄位名要有雙引號）：
- * window.FRACTION_ADDITION_FIREBASE_CONFIG = {
- *   "apiKey": "AIza……",
- *   "authDomain": "你的專案.firebaseapp.com",
- *   "projectId": "你的專案",
- *   "storageBucket": "你的專案.firebasestorage.app",
- *   "messagingSenderId": "123456789",
- *   "appId": "1:123456789:web:abcdef"
- * };
+ * 專案：homework-tracker-1d00d（與功課記錄共用，路徑分開）
+ * 設定會出現在前端；已搭配 Firestore 規則限制讀寫。
  */
-window.FRACTION_ADDITION_FIREBASE_CONFIG = null;
+window.FRACTION_ADDITION_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAyKZYmUdyDp-jSZWn5GAxwveSkgc-lATQ",
+  authDomain: "homework-tracker-1d00d.firebaseapp.com",
+  projectId: "homework-tracker-1d00d",
+  storageBucket: "homework-tracker-1d00d.firebasestorage.app",
+  messagingSenderId: "995389928747",
+  appId: "1:995389928747:web:25075b36cf47b078d4416e"
+};
