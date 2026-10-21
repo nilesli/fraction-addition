@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20261020r19" />
+  <link rel="stylesheet" href="css/styles.css?v=20261021r20" />
 </head>
 <body class="start-active">
   <!-- Portrait blocker -->
@@ -49,6 +49,7 @@
         <input id="student-id-input" type="text" maxlength="20" placeholder="輸入你的學號" autocomplete="off" />
         <div id="start-error" class="start-error" role="alert"></div>
         <button type="button" id="btn-start" class="btn btn-primary" onclick="window.__fracStart&&window.__fracStart()" style="width:100%;margin-top:0.25rem">開始練習</button>
+        <p class="teacher-link-wrap"><a href="?teacher=1" id="link-teacher-report" class="teacher-link">老師報表</a></p>
       </div>
     </section>
 
@@ -92,6 +93,7 @@
             <h2>🎉 完成！</h2>
             <p id="complete-msg"></p>
             <div class="final-expr" id="complete-final"></div>
+            <p id="record-status" class="record-status" aria-live="polite"></p>
             <button type="button" id="btn-again" class="btn btn-primary">再來一題</button>
             <div id="l1-finish-actions" class="l1-finish-actions" style="display:none">
               <button type="button" id="btn-upgrade" class="btn btn-primary">升級</button>
@@ -126,6 +128,78 @@
       <button type="button" id="hint-toggle-fab" class="hint-toggle-fab">顯示提示</button>
     </section>
 
+    <!-- ===== Teacher report ===== -->
+    <section id="screen-teacher" class="screen" aria-label="老師報表">
+      <div class="teacher-wrap">
+        <header class="teacher-header">
+          <div>
+            <h1>分數加法練習・老師報表</h1>
+            <p class="teacher-sub">李文偉老師 · Iu Shan · 僅記錄學號、成績、時間</p>
+          </div>
+          <div class="teacher-header-actions">
+            <button type="button" id="btn-teacher-back" class="btn btn-ghost btn-sm">返回練習</button>
+          </div>
+        </header>
+
+        <div id="teacher-gate" class="teacher-card">
+          <h2>輸入老師代號</h2>
+          <p class="teacher-hint">須與寫入記錄時所用代號相同。留空則使用預設代號「default」。</p>
+          <label for="teacher-gate-code">老師代號</label>
+          <input id="teacher-gate-code" type="text" maxlength="40" placeholder="例如 default 或 liwenwei" autocomplete="off" />
+          <div class="teacher-actions">
+            <button type="button" id="btn-teacher-enter" class="btn btn-primary">進入報表</button>
+          </div>
+        </div>
+
+        <div id="teacher-panel" class="teacher-panel" hidden>
+          <details class="teacher-card teacher-settings" id="teacher-settings">
+            <summary>雲端設定（Firebase）</summary>
+            <ol class="teacher-hint-list">
+              <li>在 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">Firebase Console</a> 建立專案，開啟匿名登入與 Firestore。</li>
+              <li>將 <code>firebaseConfig</code> 以 JSON 貼於下方（欄位名須加雙引號）。</li>
+              <li>學生要上傳成績：請把同一段 JSON 寫入 <code>js/firebase-config.js</code> 後再部署（前端可見，請設安全規則）。</li>
+              <li>此頁「儲存」只存於本瀏覽器，方便老師查看報表。</li>
+            </ol>
+            <label for="teacher-config-input">Firebase 設定 JSON</label>
+            <textarea id="teacher-config-input" rows="6" spellcheck="false" placeholder='{&#10;  "apiKey": "AIzaSy...",&#10;  "authDomain": "your-app.firebaseapp.com",&#10;  "projectId": "your-app-id",&#10;  "appId": "1:123456:web:abcdef"&#10;}'></textarea>
+            <label for="teacher-code-input">老師代號（寫入／讀取用）</label>
+            <input id="teacher-code-input" type="text" maxlength="40" placeholder="default" autocomplete="off" />
+            <div class="teacher-actions">
+              <button type="button" id="btn-teacher-save-cloud" class="btn btn-primary">儲存並連接</button>
+              <button type="button" id="btn-teacher-clear-cloud" class="btn btn-ghost">清除本機雲端設定</button>
+            </div>
+            <p id="teacher-cloud-status" class="teacher-status" aria-live="polite"></p>
+          </details>
+
+          <div class="teacher-toolbar teacher-card">
+            <label for="teacher-filter-id">篩選學號</label>
+            <input id="teacher-filter-id" type="text" maxlength="20" placeholder="全部" autocomplete="off" />
+            <button type="button" id="btn-teacher-refresh" class="btn btn-primary btn-sm">重新整理</button>
+            <button type="button" id="btn-teacher-csv" class="btn btn-ghost btn-sm">下載 CSV</button>
+            <span id="teacher-load-status" class="teacher-status"></span>
+          </div>
+
+          <div class="teacher-table-wrap teacher-card">
+            <table class="teacher-table" id="teacher-table">
+              <thead>
+                <tr>
+                  <th>學號</th>
+                  <th>關卡</th>
+                  <th>關卡階段</th>
+                  <th>錯次</th>
+                  <th>用時</th>
+                  <th>完成時間</th>
+                </tr>
+              </thead>
+              <tbody id="teacher-tbody">
+                <tr><td colspan="6" class="teacher-empty">尚未有記錄</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Stage clear / level-1 done overlay -->
     <div id="stage-overlay" class="stage-overlay" aria-live="polite">
       <div class="stage-overlay-card">
@@ -140,9 +214,11 @@
     </div>
   </div>
 
-  <script src="js/math.js?v=20261020r19"></script>
-  <script src="js/questions.js?v=20261020r19"></script>
-  <script src="js/steps.js?v=20261020r19"></script>
-  <script src="js/app.js?v=20261020r19"></script>
+  <script src="js/math.js?v=20261021r20"></script>
+  <script src="js/questions.js?v=20261021r20"></script>
+  <script src="js/steps.js?v=20261021r20"></script>
+  <script src="js/firebase-config.js?v=20261021r20"></script>
+  <script type="module" src="js/cloud.js?v=20261021r20"></script>
+  <script src="js/app.js?v=20261021r20"></script>
 </body>
 </html>

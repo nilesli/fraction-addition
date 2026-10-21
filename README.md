@@ -64,3 +64,25 @@ fraction-addition/
 | 第三關・約分 | 隨機真／帶，每題問「有沒有約分」 | 連續 3 題後可「升級」或「重温一次」 |
 
 單檔離線版：`分數加法練習.html`（內嵌 CSS／JS／公仔）。
+
+
+## 遊玩紀錄與老師報表（r20）
+
+每完成一題會記錄：**學號、級別／關卡階段、錯次、用時、完成時間**（不記姓名／班別）。
+
+- 無 Firebase：成績暫存瀏覽器本機，練習不受影響。
+- 有設定：匿名登入後寫入 Firestore。
+
+### 老師開啟報表
+
+```
+index.html?teacher=1
+```
+
+或起始頁底部「老師報表」。輸入老師代號（預設 `default`）後可查看表格、篩選學號、下載 CSV，並貼上 Firebase JSON（只存本瀏覽器）。
+
+### 學生上傳（部署前）
+
+編輯 `js/firebase-config.js`，將 `window.FRACTION_ADDITION_FIREBASE_CONFIG` 設為真實 JSON 物件，再部署。設定會出現在前端，請在 Firestore 設定安全規則（見 `DEPLOY_NOTE.txt`）。
+
+詳細步驟可參考倉庫根目錄 `firebase-guide.md`（功課系統教學；路徑與規則請改用本 app 的）。

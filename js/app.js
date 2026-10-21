@@ -28,10 +28,13 @@
     stageBIndex: 0, // for alternating mixed types in Stage B
     lastQuestionFp: null, // avoid consecutive identical questions
     wrongCounts: {}, // `${stepIndex}:${fieldKey}` -> count
+    questionMistakes: 0, // total wrong attempts this question
+    questionStartedAt: 0, // Date.now() when solving starts
     pendingStageAdvance: null, // 'B' | 'C' | 'done' after celebration
     hintGuideStage: 0, // 0要通分 1短除+乘數 2擴分
     hintGuideDone: false,
     lastSubmittedAnswer: null, // {w,n,d} form student actually entered on final check
+    lastPlayRecord: null, // last record payload for retry upload
   };
 
   const MASCOT_FILES = {
@@ -165,6 +168,9 @@
     // Portrait blocker only on practice; start screen must scroll on short phones
     document.body.classList.toggle('start-active', id === 'screen-start');
     document.body.classList.toggle('practice-active', id === 'screen-practice');
+    document.body.classList.toggle('teacher-active', id === 'screen-teacher');
+    const keypad = $('#num-keypad-bar');
+    if (keypad) keypad.style.display = id === 'screen-practice' ? '' : 'none';
     requestAnimationFrame(() => {
       syncPracticeChromeOffset();
       requestAnimationFrame(syncPracticeChromeOffset);
@@ -416,11 +422,16 @@
     state.currentStep = 0;
     state.complete = false;
     state.wrongCounts = {};
+    state.questionMistakes = 0;
+    state.questionStartedAt = Date.now();
     state.lastSubmittedAnswer = null;
+    state.lastPlayRecord = null;
     resetHintGuide();
     setMascot('guide');
     renderPractice();
     updateStreakUI();
+    const rs = $('#record-status');
+    if (rs) { rs.textContent = ''; rs.className = 'record-status'; }
   }
 
   function renderPractice() {
@@ -1038,6 +1049,7 @@
       setMascot('think');
       const wk = `${i}:choice`;
       state.wrongCounts[wk] = (state.wrongCounts[wk] || 0) + 1;
+      state.questionMistakes += 1;
       const extraEl = $('#hint-extra');
       if ((state.wrongCounts[wk] || 0) >= 2 && extraEl) {
         extraEl.innerHTML = colorizeMathTerms(needs
@@ -1146,6 +1158,7 @@
         inp.classList.add('wrong');
         const wk = `${i}:${key}`;
         state.wrongCounts[wk] = (state.wrongCounts[wk] || 0) + 1;
+        state.questionMistakes += 1;
       }
     });
 
@@ -1228,11 +1241,133 @@
     newQuestion();
   }
 
+  // ---------- Play-session recording ----------
+  function whenFracCloudReady() {
+    if (window.FracCloud) return Promise.resolve(window.FracCloud);
+    return new Promise((resolve) => {
+      const done = () => resolve(window.FracCloud || null);
+      window.addEventListener('fraccloud-ready', done, { once: true });
+      setTimeout(done, 4000);
+    });
+  }
+
+  function sumWrongCounts() {
+    let n = 0;
+    Object.keys(state.wrongCounts || {}).forEach((k) => {
+      n += Number(state.wrongCounts[k]) || 0;
+    });
+    return n;
+  }
+
+  function currentStageLabel() {
+    if (state.level === 1) return state.l1Stage || '';
+    if (state.level === 2) return state.l2Stage || '';
+    return '';
+  }
+
+  function formatQuestionSummary(q) {
+    if (!q || !q.addends || q.addends.length < 2) return '';
+    const fmt = (a) => {
+      if (!a) return '?';
+      if (a.type === 'mixed') return `${a.w}又${a.n}/${a.d}`;
+      return `${a.n}/${a.d}`;
+    };
+    return fmt(q.addends[0]) + '+' + fmt(q.addends[1]);
+  }
+
+  function setRecordStatus(kind, message) {
+    const el = $('#record-status');
+    if (!el) return;
+    el.className = 'record-status' + (kind ? ' ' + kind : '');
+    el.textContent = message || '';
+    el.onclick = null;
+    if (kind === 'error' || kind === 'local') {
+      el.style.cursor = 'pointer';
+      el.title = '按一下可重試上傳';
+      el.onclick = () => retryLastRecordUpload();
+    } else {
+      el.style.cursor = '';
+      el.title = '';
+    }
+  }
+
+  async function retryLastRecordUpload() {
+    if (!state.lastPlayRecord) return;
+    setRecordStatus('pending', '正在重新上傳成績……');
+    const cloud = await whenFracCloudReady();
+    if (!cloud || !cloud.saveRecord) {
+      setRecordStatus('local', '成績已暫存在本機（尚未連接雲端）。按一下可重試。');
+      return;
+    }
+    try {
+      const result = await cloud.saveRecord(state.lastPlayRecord);
+      if (result === 'cloud') {
+        setRecordStatus('ok', '成績已上傳到雲端。');
+      } else if (result === 'local') {
+        setRecordStatus('local', '成績已暫存在本機（尚未連接雲端）。按一下可重試。');
+      } else {
+        setRecordStatus('error', '成績上傳失敗，已暫存本機。按一下可重試。');
+      }
+    } catch (e) {
+      setRecordStatus('error', '成績上傳失敗，已暫存本機。按一下可重試。');
+    }
+  }
+
+  async function recordPlaySession() {
+    const mistakes = sumWrongCounts();
+    const started = state.questionStartedAt || Date.now();
+    const durationSec = Math.max(0, Math.round((Date.now() - started) / 1000));
+    // L1/L2 stageStreak is incremented later in completeProblem; count this success now.
+    const streakAfter = (state.level === 1 || state.level === 2)
+      ? (state.stageStreak || 0) + 1
+      : (state.streaks[state.level] || 0);
+    const payload = {
+      studentId: state.studentId,
+      level: state.level,
+      stage: currentStageLabel(),
+      mistakes,
+      durationSec,
+      finishedAt: new Date().toISOString(),
+      streakAfter,
+      questionSummary: formatQuestionSummary(state.question),
+    };
+    state.lastPlayRecord = payload;
+    setRecordStatus('pending', '正在儲存成績……');
+
+    const cloud = await whenFracCloudReady();
+    if (!cloud || !cloud.saveRecord) {
+      // Persist minimal local copy without FracCloud helper
+      try {
+        const key = 'fraction_addition_pending_records';
+        const arr = JSON.parse(localStorage.getItem(key) || '[]');
+        arr.push(Object.assign({ teacherCode: 'default', createdAt: new Date().toISOString() }, payload));
+        localStorage.setItem(key, JSON.stringify(arr.slice(-500)));
+      } catch (e) { /* ignore */ }
+      setRecordStatus('local', '成績已暫存在本機（尚未連接雲端）。按一下可重試。');
+      return;
+    }
+    try {
+      const result = await cloud.saveRecord(payload);
+      if (result === 'cloud') {
+        setRecordStatus('ok', '成績已上傳到雲端。');
+      } else if (result === 'local') {
+        setRecordStatus('local', '成績已暫存在本機（尚未連接雲端）。按一下可重試。');
+      } else {
+        setRecordStatus('error', '成績上傳失敗，已暫存本機。按一下可重試。');
+      }
+    } catch (e) {
+      console.warn(e);
+      setRecordStatus('error', '成績上傳失敗，已暫存本機。按一下可重試。');
+    }
+  }
+
   function completeProblem() {
     state.complete = true;
     state.streaks[state.level] = (state.streaks[state.level] || 0) + 1;
     saveStreaks();
     setMascot('celebrate');
+    // Fire-and-forget; do not block celebration UI
+    try { recordPlaySession(); } catch (e) { console.warn(e); }
 
     const q = state.question;
     const ans = displayAnswerForComplete(q);
@@ -2304,6 +2439,246 @@
   }
 
 
+
+  // ---------- Teacher report ----------
+  let teacherUnlocked = false;
+  let teacherRecordsCache = [];
+  let teacherUnsub = null;
+
+  function wantTeacherMode() {
+    try {
+      return new URLSearchParams(location.search).get('teacher') === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function openTeacherScreen() {
+    showScreen('screen-teacher');
+    const gate = $('#teacher-gate');
+    const panel = $('#teacher-panel');
+    if (!teacherUnlocked) {
+      if (gate) gate.hidden = false;
+      if (panel) panel.hidden = true;
+      whenFracCloudReady().then((cloud) => {
+        const input = $('#teacher-gate-code');
+        if (input && cloud) input.value = cloud.getTeacherCode() === 'default' ? '' : cloud.getTeacherCode();
+      });
+    } else {
+      if (gate) gate.hidden = true;
+      if (panel) panel.hidden = false;
+      fillTeacherSettingsForm();
+      refreshTeacherTable();
+    }
+  }
+
+  function leaveTeacherScreen() {
+    if (teacherUnsub) {
+      try { teacherUnsub(); } catch (e) {}
+      teacherUnsub = null;
+    }
+    // Strip ?teacher=1 without full reload if possible
+    try {
+      const url = new URL(location.href);
+      url.searchParams.delete('teacher');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch (e) {}
+    if (state.studentId) {
+      showScreen('screen-practice');
+    } else {
+      initStart();
+    }
+  }
+
+  async function enterTeacherWithCode() {
+    const cloud = await whenFracCloudReady();
+    const raw = ($('#teacher-gate-code') && $('#teacher-gate-code').value) || '';
+    const code = cloud ? cloud.sanitizeTeacherCode(raw) : (String(raw || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default');
+    if (cloud) cloud.setTeacherCode(code);
+    teacherUnlocked = true;
+    const gate = $('#teacher-gate');
+    const panel = $('#teacher-panel');
+    if (gate) gate.hidden = true;
+    if (panel) panel.hidden = false;
+    fillTeacherSettingsForm();
+    refreshTeacherTable();
+  }
+
+  async function fillTeacherSettingsForm() {
+    const cloud = await whenFracCloudReady();
+    const ta = $('#teacher-config-input');
+    const codeInp = $('#teacher-code-input');
+    const status = $('#teacher-cloud-status');
+    if (!cloud) {
+      if (status) status.textContent = '雲端模組尚未載入。';
+      return;
+    }
+    if (codeInp) codeInp.value = cloud.getTeacherCode();
+    if (ta) {
+      const cfg = cloud.getFirebaseConfig();
+      ta.value = cfg ? JSON.stringify(cfg, null, 2) : '';
+    }
+    if (status) {
+      status.textContent = cloud.isConfigured()
+        ? '已偵測到 Firebase 設定，可嘗試連接雲端。'
+        : '尚未設定 Firebase：學生成績會暫存本機。可在下方貼上 JSON，或編輯 js/firebase-config.js 後部署。';
+    }
+  }
+
+  async function saveTeacherCloudSettings() {
+    const cloud = await whenFracCloudReady();
+    const status = $('#teacher-cloud-status');
+    if (!cloud) {
+      if (status) status.textContent = '雲端模組尚未載入。';
+      return;
+    }
+    const rawVal = ($('#teacher-config-input') && $('#teacher-config-input').value || '').trim();
+    const rawCode = ($('#teacher-code-input') && $('#teacher-code-input').value || '').trim();
+    if (!rawVal) {
+      alert('請輸入有效的 Firebase 設定 JSON。');
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(rawVal);
+    } catch (e) {
+      alert('JSON 格式不正確，請確認已複製完整內容（欄位名須加雙引號）。');
+      return;
+    }
+    if (!parsed.apiKey || !parsed.projectId) {
+      alert('設定缺少必要的 apiKey 或 projectId 欄位，請檢查。');
+      return;
+    }
+    const code = cloud.sanitizeTeacherCode(rawCode);
+    cloud.setTeacherCode(code);
+    cloud.saveFirebaseConfigToLocal(parsed);
+    if (status) status.textContent = '已儲存本機設定，正在重新連接……';
+    // Force re-init by reload is simplest (Firebase app name already registered otherwise)
+    alert('雲端設定已儲存，頁面將重新載入。');
+    const url = new URL(location.href);
+    url.searchParams.set('teacher', '1');
+    location.href = url.toString();
+  }
+
+  async function clearTeacherCloudSettings() {
+    if (!confirm('確定清除本瀏覽器的雲端設定嗎？（不會刪除已上傳的記錄）')) return;
+    const cloud = await whenFracCloudReady();
+    if (cloud) cloud.clearFirebaseConfigLocal();
+    alert('已清除，頁面將重新載入。');
+    const url = new URL(location.href);
+    url.searchParams.set('teacher', '1');
+    location.href = url.toString();
+  }
+
+  function stageDisplay(rec) {
+    if (!rec) return '—';
+    if (rec.level === 3 || rec.level === '3') return '—';
+    const s = rec.stage || '';
+    if (!s) return '—';
+    const map = { A: '第一關', B: '第二關', C: '第三關' };
+    return map[s] || s;
+  }
+
+  function formatDuration(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    if (n < 60) return n + ' 秒';
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return m + ' 分 ' + s + ' 秒';
+  }
+
+  function renderTeacherRows(records) {
+    const tbody = $('#teacher-tbody');
+    if (!tbody) return;
+    const filter = (($('#teacher-filter-id') && $('#teacher-filter-id').value) || '').trim().toLowerCase();
+    let list = records || [];
+    if (filter) {
+      list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
+    }
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="teacher-empty">尚未有記錄</td></tr>';
+      return;
+    }
+    const fmtTime = (iso) => {
+      if (window.FracCloud && window.FracCloud.formatHkTime) return window.FracCloud.formatHkTime(iso);
+      try {
+        return new Intl.DateTimeFormat('zh-HK', {
+          timeZone: 'Asia/Hong_Kong',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        }).format(new Date(iso));
+      } catch (e) { return iso || ''; }
+    };
+    tbody.innerHTML = list.map((r) => {
+      const sid = escapeHtml(r.studentId || '');
+      const lv = 'L' + (r.level != null ? r.level : '');
+      const stage = escapeHtml(stageDisplay(r));
+      const mistakes = r.mistakes != null ? r.mistakes : '';
+      const dur = formatDuration(r.durationSec);
+      const t = escapeHtml(fmtTime(r.finishedAt));
+      return `<tr><td>${sid}</td><td>${lv}</td><td>${stage}</td><td>${mistakes}</td><td>${dur}</td><td>${t}</td></tr>`;
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  async function refreshTeacherTable() {
+    const status = $('#teacher-load-status');
+    if (status) status.textContent = '載入中……';
+    const cloud = await whenFracCloudReady();
+    const code = cloud ? cloud.getTeacherCode() : 'default';
+    if (teacherUnsub) {
+      try { teacherUnsub(); } catch (e) {}
+      teacherUnsub = null;
+    }
+    if (cloud && cloud.subscribeRecords) {
+      teacherUnsub = cloud.subscribeRecords(code, (result) => {
+        teacherRecordsCache = result.records || [];
+        renderTeacherRows(teacherRecordsCache);
+        if (status) {
+          const src = result.source === 'cloud' ? '雲端' : '本機';
+          status.textContent = `來源：${src} · 共 ${teacherRecordsCache.length} 筆` + (result.error ? '（部分失敗）' : '');
+        }
+      });
+    } else if (cloud && cloud.loadRecords) {
+      const result = await cloud.loadRecords(code);
+      teacherRecordsCache = result.records || [];
+      renderTeacherRows(teacherRecordsCache);
+      if (status) status.textContent = `來源：${result.source === 'cloud' ? '雲端' : '本機'} · 共 ${teacherRecordsCache.length} 筆`;
+    } else {
+      teacherRecordsCache = [];
+      renderTeacherRows([]);
+      if (status) status.textContent = '無法載入雲端模組。';
+    }
+  }
+
+  function downloadTeacherCsv() {
+    const cloud = window.FracCloud;
+    const filter = (($('#teacher-filter-id') && $('#teacher-filter-id').value) || '').trim().toLowerCase();
+    let list = teacherRecordsCache || [];
+    if (filter) list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
+    const csv = cloud && cloud.recordsToCsv
+      ? cloud.recordsToCsv(list)
+      : '\uFEFF學號,關卡,關卡階段,錯次,用時秒,完成時間\n';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'fraction-addition-records.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 500);
+  }
+
+
   // ---------- Wire events ----------
   function bind() {
     const btnStart = $('#btn-start');
@@ -2357,6 +2732,37 @@
     });
 
     bindNumKeypad();
+
+    const btnTeacherBack = $('#btn-teacher-back');
+    if (btnTeacherBack) btnTeacherBack.addEventListener('click', leaveTeacherScreen);
+    const btnTeacherEnter = $('#btn-teacher-enter');
+    if (btnTeacherEnter) btnTeacherEnter.addEventListener('click', enterTeacherWithCode);
+    const gateCode = $('#teacher-gate-code');
+    if (gateCode) gateCode.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') enterTeacherWithCode();
+    });
+    const btnSaveCloud = $('#btn-teacher-save-cloud');
+    if (btnSaveCloud) btnSaveCloud.addEventListener('click', saveTeacherCloudSettings);
+    const btnClearCloud = $('#btn-teacher-clear-cloud');
+    if (btnClearCloud) btnClearCloud.addEventListener('click', clearTeacherCloudSettings);
+    const btnRefresh = $('#btn-teacher-refresh');
+    if (btnRefresh) btnRefresh.addEventListener('click', refreshTeacherTable);
+    const btnCsv = $('#btn-teacher-csv');
+    if (btnCsv) btnCsv.addEventListener('click', downloadTeacherCsv);
+    const filterId = $('#teacher-filter-id');
+    if (filterId) filterId.addEventListener('input', () => renderTeacherRows(teacherRecordsCache));
+    const linkTeacher = $('#link-teacher-report');
+    if (linkTeacher) {
+      linkTeacher.addEventListener('click', (e) => {
+        e.preventDefault();
+        try {
+          const url = new URL(location.href);
+          url.searchParams.set('teacher', '1');
+          history.replaceState(null, '', url.pathname + url.search + url.hash);
+        } catch (err) {}
+        openTeacherScreen();
+      });
+    }
   }
 
   // ---------- Boot ----------
@@ -2388,7 +2794,11 @@
     try {
       bind();
       setupPracticeChromePin();
-      initStart();
+      if (wantTeacherMode()) {
+        openTeacherScreen();
+      } else {
+        initStart();
+      }
     } catch (e) {
       console.error(e);
       const err = document.getElementById('start-error');
