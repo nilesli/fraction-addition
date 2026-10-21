@@ -185,6 +185,9 @@ async function saveRecord(partial) {
     createdAt: new Date().toISOString(),
     streakAfter: Number(partial.streakAfter) || 0,
   };
+  if (partial.sessionId) {
+    record.sessionId = String(partial.sessionId).slice(0, 64);
+  }
   if (partial.questionSummary) {
     record.questionSummary = String(partial.questionSummary).slice(0, 80);
   }
@@ -314,7 +317,7 @@ function subscribeRecords(teacherCode, onData, max = 300) {
 }
 
 function recordsToCsv(records) {
-  const header = ['學號', '關卡', '關卡階段', '錯次', '用時秒', '完成時間', '題目'];
+  const header = ['學號', '關卡', '關卡階段', '錯次', '用時秒', '完成時間', '題目', '場次'];
   const rows = records.map((r) => {
     const hk = formatHkTime(r.finishedAt);
     return [
@@ -325,6 +328,7 @@ function recordsToCsv(records) {
       r.durationSec != null ? r.durationSec : '',
       hk,
       r.questionSummary || '',
+      r._sessionLabel || r.sessionId || '',
     ].map(csvEscape).join(',');
   });
   return '\uFEFF' + [header.join(','), ...rows].join('\n');

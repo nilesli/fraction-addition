@@ -35,6 +35,7 @@
     hintGuideDone: false,
     lastSubmittedAnswer: null, // {w,n,d} form student actually entered on final check
     lastPlayRecord: null, // last record payload for retry upload
+    playSessionId: null, // groups stage records from one practice visit
   };
 
   const MASCOT_FILES = {
@@ -323,6 +324,7 @@
     }
     err.textContent = '';
     state.studentId = raw;
+    state.playSessionId = newPlaySessionId();
     safeStorage.set(STORAGE_ID, raw);
     try {
       startPractice();
@@ -1313,6 +1315,15 @@
     }
   }
 
+  function newPlaySessionId() {
+    return 'ps_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function ensurePlaySessionId() {
+    if (!state.playSessionId) state.playSessionId = newPlaySessionId();
+    return state.playSessionId;
+  }
+
   async function recordPlaySession() {
     const mistakes = sumWrongCounts();
     const started = state.questionStartedAt || Date.now();
@@ -1330,6 +1341,7 @@
       finishedAt: new Date().toISOString(),
       streakAfter,
       questionSummary: formatQuestionSummary(state.question),
+      sessionId: ensurePlaySessionId(),
     };
     state.lastPlayRecord = payload;
     setRecordStatus('pending', '正在儲存成績……');
@@ -2444,6 +2456,8 @@
   let teacherUnlocked = false;
   let teacherRecordsCache = [];
   let teacherUnsub = null;
+  let teacherExpandedSessions = new Set();
+  const TEACHER_SESSION_GAP_MS = 15 * 60 * 1000;
 
   function wantTeacherMode() {
     try {
@@ -2579,12 +2593,132 @@
     return map[s] || s;
   }
 
+  function stageOrder(stage) {
+    const s = String(stage || '');
+    if (s === 'A' || s === '第一關') return 1;
+    if (s === 'B' || s === '第二關') return 2;
+    if (s === 'C' || s === '第三關') return 3;
+    return 0;
+  }
+
+  function progressScore(rec) {
+    return (Number(rec && rec.level) || 0) * 10 + stageOrder(rec && rec.stage);
+  }
+
+  function progressLabel(rec) {
+    const lv = 'L' + (rec && rec.level != null ? rec.level : '');
+    const st = stageDisplay(rec);
+    if (!st || st === '—') return lv;
+    return lv + ' ' + st;
+  }
+
   function formatDuration(sec) {
     const n = Math.max(0, Math.round(Number(sec) || 0));
     if (n < 60) return n + ' 秒';
     const m = Math.floor(n / 60);
     const s = n % 60;
     return m + ' 分 ' + s + ' 秒';
+  }
+
+  function buildTeacherSession(recs, key) {
+    const sortedAsc = recs.slice().sort((a, b) => String(a.finishedAt || '').localeCompare(String(b.finishedAt || '')));
+    let best = sortedAsc[0];
+    let mistakes = 0;
+    let duration = 0;
+    sortedAsc.forEach((r) => {
+      mistakes += Number(r.mistakes) || 0;
+      duration += Number(r.durationSec) || 0;
+      if (progressScore(r) >= progressScore(best)) best = r;
+    });
+    const latest = sortedAsc[sortedAsc.length - 1];
+    return {
+      key,
+      studentId: (latest && latest.studentId) || (sortedAsc[0] && sortedAsc[0].studentId) || '',
+      progressLabel: progressLabel(best),
+      mistakes,
+      durationSec: duration,
+      finishedAt: latest && latest.finishedAt,
+      stages: sortedAsc,
+      sessionLabel: (sortedAsc[0] && sortedAsc[0].sessionId) || key,
+    };
+  }
+
+  /**
+   * Group stage records into play sessions.
+   * Prefer sessionId when present; otherwise same studentId with ≤15 min gap.
+   */
+  function groupRecordsIntoSessions(records) {
+    const withSession = new Map();
+    const without = [];
+    (records || []).forEach((r) => {
+      const sid = r && r.sessionId != null && String(r.sessionId).trim();
+      if (sid) {
+        const k = String(r.studentId || '') + '\0' + sid;
+        if (!withSession.has(k)) withSession.set(k, []);
+        withSession.get(k).push(r);
+      } else {
+        without.push(r);
+      }
+    });
+
+    const sessions = [];
+    withSession.forEach((recs, k) => {
+      const parts = k.split('\0');
+      const studentId = parts[0];
+      const sessionId = parts.slice(1).join('\0');
+      sessions.push(buildTeacherSession(recs, 'sid:' + studentId + ':' + sessionId));
+    });
+
+    const byStudent = new Map();
+    without.forEach((r) => {
+      const sid = String(r.studentId || '');
+      if (!byStudent.has(sid)) byStudent.set(sid, []);
+      byStudent.get(sid).push(r);
+    });
+
+    byStudent.forEach((recs, studentId) => {
+      const sorted = recs.slice().sort((a, b) => String(a.finishedAt || '').localeCompare(String(b.finishedAt || '')));
+      let cluster = [];
+      let clusterStart = '';
+      const flush = () => {
+        if (!cluster.length) return;
+        sessions.push(buildTeacherSession(cluster, 'gap:' + studentId + ':' + clusterStart));
+        cluster = [];
+        clusterStart = '';
+      };
+      sorted.forEach((r) => {
+        if (!cluster.length) {
+          cluster = [r];
+          clusterStart = String(r.finishedAt || '');
+          return;
+        }
+        const prevT = new Date(cluster[cluster.length - 1].finishedAt).getTime();
+        const t = new Date(r.finishedAt).getTime();
+        const gapOk = !Number.isNaN(prevT) && !Number.isNaN(t) && (t - prevT) <= TEACHER_SESSION_GAP_MS;
+        if (gapOk) {
+          cluster.push(r);
+        } else {
+          flush();
+          cluster = [r];
+          clusterStart = String(r.finishedAt || '');
+        }
+      });
+      flush();
+    });
+
+    sessions.sort((a, b) => String(b.finishedAt || '').localeCompare(String(a.finishedAt || '')));
+    return sessions;
+  }
+
+  function formatTeacherTime(iso) {
+    if (window.FracCloud && window.FracCloud.formatHkTime) return window.FracCloud.formatHkTime(iso);
+    try {
+      return new Intl.DateTimeFormat('zh-HK', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).format(new Date(iso));
+    } catch (e) { return iso || ''; }
   }
 
   function renderTeacherRows(records) {
@@ -2595,29 +2729,72 @@
     if (filter) {
       list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
     }
-    if (!list.length) {
+    const sessions = groupRecordsIntoSessions(list);
+    if (!sessions.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="teacher-empty">尚未有記錄</td></tr>';
       return;
     }
-    const fmtTime = (iso) => {
-      if (window.FracCloud && window.FracCloud.formatHkTime) return window.FracCloud.formatHkTime(iso);
-      try {
-        return new Intl.DateTimeFormat('zh-HK', {
-          timeZone: 'Asia/Hong_Kong',
-          year: 'numeric', month: '2-digit', day: '2-digit',
-          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-        }).format(new Date(iso));
-      } catch (e) { return iso || ''; }
-    };
-    tbody.innerHTML = list.map((r) => {
-      const sid = escapeHtml(r.studentId || '');
-      const lv = 'L' + (r.level != null ? r.level : '');
-      const stage = escapeHtml(stageDisplay(r));
-      const mistakes = r.mistakes != null ? r.mistakes : '';
-      const dur = formatDuration(r.durationSec);
-      const t = escapeHtml(fmtTime(r.finishedAt));
-      return `<tr><td>${sid}</td><td>${lv}</td><td>${stage}</td><td>${mistakes}</td><td>${dur}</td><td>${t}</td></tr>`;
+    tbody.innerHTML = sessions.map((s) => {
+      const expanded = teacherExpandedSessions.has(s.key);
+      const sid = escapeHtml(s.studentId || '');
+      const prog = escapeHtml(s.progressLabel || '');
+      const mistakes = s.mistakes != null ? s.mistakes : '';
+      const dur = formatDuration(s.durationSec);
+      const t = escapeHtml(formatTeacherTime(s.finishedAt));
+      const keyAttr = escapeHtml(s.key);
+      const chevron = expanded ? '▼' : '▶';
+      const summary =
+        '<tr class="teacher-session-row' + (expanded ? ' is-expanded' : '') + '" data-session-key="' + keyAttr + '">' +
+          '<td class="teacher-col-expand">' +
+            '<button type="button" class="teacher-expand-btn" aria-expanded="' + (expanded ? 'true' : 'false') + '" ' +
+              'aria-label="' + (expanded ? '收合明細' : '展開明細') + '：學號 ' + sid + '">' +
+              '<span aria-hidden="true">' + chevron + '</span>' +
+            '</button>' +
+          '</td>' +
+          '<td>' + sid + '</td>' +
+          '<td>' + prog + '</td>' +
+          '<td>' + mistakes + '</td>' +
+          '<td>' + dur + '</td>' +
+          '<td>' + t + '</td>' +
+        '</tr>';
+      if (!expanded) return summary;
+      const detailRows = s.stages.map((r) => {
+        const lv = 'L' + (r.level != null ? r.level : '');
+        const stage = escapeHtml(stageDisplay(r));
+        const m = r.mistakes != null ? r.mistakes : '';
+        const d = formatDuration(r.durationSec);
+        const ft = escapeHtml(formatTeacherTime(r.finishedAt));
+        return '<tr><td>' + lv + '</td><td>' + stage + '</td><td>' + m + '</td><td>' + d + '</td><td>' + ft + '</td></tr>';
+      }).join('');
+      const detail =
+        '<tr class="teacher-detail-row" data-session-key="' + keyAttr + '">' +
+          '<td colspan="6">' +
+            '<div class="teacher-detail-wrap">' +
+              '<table class="teacher-detail-table">' +
+                '<thead><tr><th>關卡</th><th>關卡階段</th><th>錯次</th><th>用時</th><th>完成時間</th></tr></thead>' +
+                '<tbody>' + detailRows + '</tbody>' +
+              '</table>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      return summary + detail;
     }).join('');
+  }
+
+  function toggleTeacherSession(sessionKey) {
+    if (!sessionKey) return;
+    if (teacherExpandedSessions.has(sessionKey)) teacherExpandedSessions.delete(sessionKey);
+    else teacherExpandedSessions.add(sessionKey);
+    renderTeacherRows(teacherRecordsCache);
+  }
+
+  function onTeacherTableClick(e) {
+    const btn = e.target && e.target.closest && e.target.closest('.teacher-expand-btn');
+    if (!btn) return;
+    const row = btn.closest('tr[data-session-key]');
+    if (!row) return;
+    e.preventDefault();
+    toggleTeacherSession(row.getAttribute('data-session-key'));
   }
 
   function escapeHtml(s) {
@@ -2626,6 +2803,12 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function teacherStatusText(result, sessions, stageCount) {
+    const src = result && result.source === 'cloud' ? '雲端' : '本機';
+    const err = result && result.error ? '（部分失敗）' : '';
+    return '來源：' + src + ' · ' + sessions.length + ' 場（共 ' + stageCount + ' 筆明細）' + err;
   }
 
   async function refreshTeacherTable() {
@@ -2637,20 +2820,20 @@
       try { teacherUnsub(); } catch (e) {}
       teacherUnsub = null;
     }
+    const applyResult = (result) => {
+      teacherRecordsCache = result.records || [];
+      const filter = (($('#teacher-filter-id') && $('#teacher-filter-id').value) || '').trim().toLowerCase();
+      let list = teacherRecordsCache;
+      if (filter) list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
+      const sessions = groupRecordsIntoSessions(list);
+      renderTeacherRows(teacherRecordsCache);
+      if (status) status.textContent = teacherStatusText(result, sessions, list.length);
+    };
     if (cloud && cloud.subscribeRecords) {
-      teacherUnsub = cloud.subscribeRecords(code, (result) => {
-        teacherRecordsCache = result.records || [];
-        renderTeacherRows(teacherRecordsCache);
-        if (status) {
-          const src = result.source === 'cloud' ? '雲端' : '本機';
-          status.textContent = `來源：${src} · 共 ${teacherRecordsCache.length} 筆` + (result.error ? '（部分失敗）' : '');
-        }
-      });
+      teacherUnsub = cloud.subscribeRecords(code, applyResult);
     } else if (cloud && cloud.loadRecords) {
       const result = await cloud.loadRecords(code);
-      teacherRecordsCache = result.records || [];
-      renderTeacherRows(teacherRecordsCache);
-      if (status) status.textContent = `來源：${result.source === 'cloud' ? '雲端' : '本機'} · 共 ${teacherRecordsCache.length} 筆`;
+      applyResult(result);
     } else {
       teacherRecordsCache = [];
       renderTeacherRows([]);
@@ -2663,9 +2846,17 @@
     const filter = (($('#teacher-filter-id') && $('#teacher-filter-id').value) || '').trim().toLowerCase();
     let list = teacherRecordsCache || [];
     if (filter) list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
+    const sessions = groupRecordsIntoSessions(list);
+    const flat = [];
+    sessions.forEach((s, idx) => {
+      const label = (s.stages[0] && s.stages[0].sessionId) ? s.stages[0].sessionId : ('場次' + (idx + 1));
+      s.stages.forEach((r) => {
+        flat.push(Object.assign({}, r, { _sessionLabel: label }));
+      });
+    });
     const csv = cloud && cloud.recordsToCsv
-      ? cloud.recordsToCsv(list)
-      : '\uFEFF學號,關卡,關卡階段,錯次,用時秒,完成時間\n';
+      ? cloud.recordsToCsv(flat)
+      : '\uFEFF學號,關卡,關卡階段,錯次,用時秒,完成時間,題目,場次\n';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -2715,6 +2906,7 @@
 
     const btnChange = $('#btn-change-id');
     if (btnChange) btnChange.addEventListener('click', () => {
+      state.playSessionId = null;
       initStart();
     });
 
@@ -2750,7 +2942,20 @@
     const btnCsv = $('#btn-teacher-csv');
     if (btnCsv) btnCsv.addEventListener('click', downloadTeacherCsv);
     const filterId = $('#teacher-filter-id');
-    if (filterId) filterId.addEventListener('input', () => renderTeacherRows(teacherRecordsCache));
+    if (filterId) filterId.addEventListener('input', () => {
+      renderTeacherRows(teacherRecordsCache);
+      const status = $('#teacher-load-status');
+      if (status && teacherRecordsCache) {
+        const filter = (filterId.value || '').trim().toLowerCase();
+        let list = teacherRecordsCache;
+        if (filter) list = list.filter((r) => String(r.studentId || '').toLowerCase().includes(filter));
+        const sessions = groupRecordsIntoSessions(list);
+        const src = status.textContent.indexOf('本機') >= 0 ? '本機' : '雲端';
+        status.textContent = '來源：' + src + ' · ' + sessions.length + ' 場（共 ' + list.length + ' 筆明細）';
+      }
+    });
+    const teacherTable = $('#teacher-table');
+    if (teacherTable) teacherTable.addEventListener('click', onTeacherTableClick);
     const linkTeacher = $('#link-teacher-report');
     if (linkTeacher) {
       linkTeacher.addEventListener('click', (e) => {
